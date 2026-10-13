@@ -37,6 +37,8 @@ from transformers.modeling_outputs import BaseModelOutput
 from prepare_data import STRATEGIES
 
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
+# bf16 autocast only where the GPU supports it (not on Colab T4); T5 is unstable in fp16, so fall back to fp32.
+AMP = DEV == "cuda" and torch.cuda.is_bf16_supported()
 SPECIAL = ["[STRAT]", "[RESP]", "[CAND]", "[CTX]"]
 COMET_RELS = ["xIntent", "xNeed", "xEffect", "xWant"]
 
@@ -93,7 +95,7 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
     steps = epochs * math.ceil(len(pairs) / bs) // grad_accum
     mk = get_cosine_schedule_with_warmup if sched == "cosine" else get_linear_schedule_with_warmup
     sch = mk(opt, int(warmup * steps) if warmup < 1 else int(warmup), steps)
-    use_amp = fp16 and DEV == "cuda"
+    use_amp = fp16 and AMP
     for ep in range(epochs):
         random.shuffle(pairs)
         tot = 0.0
@@ -345,7 +347,7 @@ def cmd_train_fusion(a):
             ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in b], [e["strategy"] for e in exs], kmap)
             lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
             lab[lab == tok.pad_token_id] = -100
-            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=DEV == "cuda"):
+            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=AMP):
                 loss = model(ctx, com, hel, lab).loss
             opt.zero_grad(), loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

@@ -103,10 +103,11 @@ def main():
     tok.padding_side = "left"
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    kw = {"torch_dtype": torch.bfloat16, "device_map": "auto"}
+    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+    kw = {"torch_dtype": dtype, "device_map": "auto"}
     if args.load_4bit:
         from transformers import BitsAndBytesConfig
-        kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+        kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=dtype)
     model = AutoModelForCausalLM.from_pretrained(args.model, **kw).eval()
 
     pred_path = os.path.join(args.out, "predictions.jsonl")
