@@ -6,7 +6,7 @@ Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support 
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_colab.ipynb) Runs every step on a free T4 GPU and saves outputs to Google Drive. `python compare.py` prints our numbers next to the paper's.
 
-## Setup (on a machine with an NVIDIA GPU)
+## Setup (on a machine with an NVIDIA GPU, 16GB RAM)
 
 ```bash
 pip install torch transformers accelerate sentencepiece nltk scikit-learn rank-bm25 bitsandbytes
