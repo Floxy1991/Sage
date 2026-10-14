@@ -34,7 +34,7 @@ def main():
                 m.update(j.get("generation", {}), **j.get("strategy", {}), **j.get("retrieval", {}))
                 m.update({k: v for k, v in j.items() if isinstance(v, (int, float))})
         run = os.path.basename(d.rstrip("/"))
-        paper = next((v for k, v in GUESS.items() if k in run.lower()), None)
+        paper = None if run.lower().startswith("sage_") else next((v for k, v in GUESS.items() if k in run.lower()), None)
         rows.append((run, m, paper))
     print("| run | n | " + " | ".join(COLS) + " |")
     print("|---|---|" + "---|" * len(COLS))

@@ -2,7 +2,11 @@
 
 Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support conversation* (Yang et al., ESWA 2026, [doi:10.1016/j.eswa.2026.131524](https://doi.org/10.1016/j.eswa.2026.131524)) on ESConv. The paper is included as [SAGE_paper.pdf](SAGE_paper.pdf) (CC BY-NC-ND 4.0). ESConv ([thu-coai](https://github.com/thu-coai/Emotional-Support-Conversation)) is included for academic research use only. The authors released no code, so the SAGE part is a **re-implementation**. See [AUDIT.md](AUDIT.md) for what the paper leaves out or gets wrong.
 
-## Quick start on Google Colab
+## Self-contained notebook
+
+[`SAGE_reproduction.ipynb`](SAGE_reproduction.ipynb) has the whole reproduction inline (data, metrics, BM25, LLM baselines, SAGE, ablations, comparison with the paper) and runs top to bottom in Jupyter or Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_reproduction.ipynb)
+
+## Quick start on Google Colab (script version)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_colab.ipynb) Runs every step on a free T4 GPU and saves outputs to Google Drive. `python compare.py` prints our numbers next to the paper's.
 
