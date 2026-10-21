@@ -16,6 +16,13 @@ PAPER = {
                                             "R@1": 31.6, "R@10": 74.8, "MRR@10": 0.437, "nDCG@10": 0.703}),
 }
 COLS = ["ACC", "Macro-F1", "PPL", "B-2", "B-4", "D-1", "D-2", "R-L", "R@1", "R@10", "MRR@10", "nDCG@10"]
+ESC_PAPER = {  # SAGE Table 5 (human raters, 5-point scale); Exp./Skill./Overall from Table C.15 "Overall" row
+    "SAGE": {"Emp.": 4.12, "Flu.": 4.39, "Hum.": 4.28, "Info.": 4.05, "Exp.": 4.28, "Skill.": 4.08, "Overall": 4.12},
+    "Qwen-2.5-7B": {"Emp.": 3.84, "Flu.": 4.28, "Hum.": 4.12, "Info.": 3.76, "Exp.": 3.91, "Skill.": 3.74, "Overall": 3.80},
+    "Mistral-7B": {"Emp.": 3.62, "Flu.": 4.18, "Hum.": 3.95, "Info.": 3.71},
+    "LLaMA-3.1-8B": {"Emp.": 3.54, "Flu.": 4.12, "Hum.": 3.87, "Info.": 3.65},
+}
+ESC_COLS = ["Flu.", "Exp.", "Emp.", "Info.", "Hum.", "Skill.", "Overall"]
 GUESS = {"qwen": "Qwen-2.5-7B", "llama": "LLaMA-3.1-8B", "mistral": "Mistral-7B", "sage": "SAGE", "blender": "BlenderBot-Joint"}
 
 
@@ -42,6 +49,20 @@ def main():
         print(f"| {run} (ours) | {m.get('n', '')} | " + " | ".join(fmt(m.get(c)) for c in COLS) + " |")
         if paper:
             print(f"| {paper} (paper) | | " + " | ".join(fmt(PAPER[paper].get(c)) for c in COLS) + " |")
+
+    esc = sorted(glob.glob("results/esceval_*/esceval.json"))
+    if esc:
+        print("\nESC-Eval (ours: ESC-RANK/LLM judge, 0-4 shifted to 1-5; paper: human raters, 5-point)\n")
+        print("| run | n | judge | " + " | ".join(ESC_COLS) + " |")
+        print("|---|---|---|" + "---|" * len(ESC_COLS))
+        for p in esc:
+            j = json.load(open(p))
+            run = os.path.basename(os.path.dirname(p))
+            print(f"| {run} (ours) | {j['n']} | {j.get('judge', '')} | "
+                  + " | ".join(fmt(j["sage_scale_1to5"].get(c)) for c in ESC_COLS) + " |")
+            paper = next((v for k, v in GUESS.items() if k in run.lower().replace("esceval_", "")), None)
+            if paper in ESC_PAPER:
+                print(f"| {paper} (paper) | | human | " + " | ".join(fmt(ESC_PAPER[paper].get(c)) for c in ESC_COLS) + " |")
 
 
 if __name__ == "__main__":

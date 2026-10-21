@@ -1,6 +1,6 @@
 # SAGE reproduction kit
 
-Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support conversation* (Yang et al., ESWA 2026, [doi:10.1016/j.eswa.2026.131524](https://doi.org/10.1016/j.eswa.2026.131524)) on ESConv. The paper is included as [SAGE_paper.pdf](SAGE_paper.pdf) (CC BY-NC-ND 4.0). ESConv ([thu-coai](https://github.com/thu-coai/Emotional-Support-Conversation)) is included for academic research use only. The authors released no code, so the SAGE part is a **re-implementation**. See [AUDIT.md](AUDIT.md) for what the paper leaves out or gets wrong.
+Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support conversation* (Yang et al., ESWA 2026, [doi:10.1016/j.eswa.2026.131524](https://doi.org/10.1016/j.eswa.2026.131524)) on its two datasets, ESConv and ESC-Eval. The paper is included as [SAGE_paper.pdf](SAGE_paper.pdf) (CC BY-NC-ND 4.0). ESConv ([thu-coai](https://github.com/thu-coai/Emotional-Support-Conversation)) is included for academic research use only. The authors released no code, so the SAGE part is a **re-implementation**. See [AUDIT.md](AUDIT.md) for what the paper leaves out or gets wrong.
 
 ## Self-contained notebook
 
@@ -30,6 +30,7 @@ python prepare_data.py --esconv data/ESConv.json --out data   # already done: da
 | 5 | `python sage.py train-fusion` | n/a | 12 GB |
 | 6 | `python sage.py infer --out results/sage` | Table 1-3, SAGE row | 8 GB |
 | 7 | `python sage.py eval-retrieval --out results/sage` | Table 4 | 8 GB |
+| 7b | `python esc_eval.py roleplay --system sage --out results/esceval_sage --load-4bit` then `python esc_eval.py score --dialogs results/esceval_sage/dialogs.json` (repeat with `--system llm:<model>`) | Table 5 / C.15 (ESC-Eval) | 16 GB (ESC-Role 14B and ESC-RANK 7B in 4-bit) |
 | 8 | Ablations: `infer --no-constraint`, `--no-resid`, `--no-comet`, `--no-heal`, `--retrieval-only`; and `train-selfret --no-strategy-token` then infer | Table 6 | as 6 |
 
 Add `--limit 200` to any `infer` or `llm_baseline` run for a quick check first. Use `--split zcj` to rerun on the 70/15/15 split that the earlier baselines used.
@@ -45,5 +46,10 @@ Add `--limit 200` to any `infer` or `llm_baseline` run for a quick check first. 
 - The retrieval pool for Table 4 is 100 test responses including the gold one. The paper doesn't state its pool size. On the full test pool, BM25 gets R@10 11.4, compared with 61.8 for the paper's DPR.
 - Metrics: corpus BLEU (nltk, smoothing 1), corpus Distinct, ROUGE-L with β = 1.2, entropy and JSD in log2.
 
+## Datasets
+
+- **ESConv** (`data/ESConv.json`, splits in `data/paper` and `data/zcj`). Used for training and for Tables 1-4 and 6.
+- **ESC-Eval** (`data/esceval/`). The 331 English and 324 Chinese high-quality role cards from the official ESC-Eval repo, plus its scoring prompts. Used for Table 5 / C.15 through role-play: ESC-Role plays the seeker and ESC-RANK scores the dialogue. See `data/esceval/SOURCE.md`.
+
 ## Not reproducible as described
-Human evaluation (Table 5) and ESC-Eval role-play (Table C.15) were done by three of the authors, and the protocol isn't released. GPT-4o's PPL can't be computed through the API.
+SAGE's Table 5 scores come from three of its authors rating responses. We replace them with ESC-Eval's automatic judge (ESC-RANK) on the public cards, so those numbers are comparable only roughly. GPT-4o's PPL can't be computed through the API.

@@ -24,6 +24,10 @@ SAGE can only be **re-implemented**, not rerun. There is no code ("data will be 
 
 The arithmetic on the headline relative gains (13.4%, 52.1%, 68.0%, 20.7%, 8.6%, ablation deltas other than #5) checks out.
 
+| 11 | Section 4.1, Table A.10: ESC-Eval has 2,801 role cards drawn from ESConv (1,300), EmpatheticDialogues, BlendedSkillTalk, Wizard of Wikipedia, PersonaChat and Topical-Chat | ESC-Eval's official release ([haidequanbu/ESC-Eval](https://github.com/haidequanbu/ESC-Eval)) has 655 high-quality cards: 331 English (ESConv 158, MHP 73, ExTES 70, Psych 25, EPITOME 5) and 324 Chinese (PsyQA 252, smile 72). The source mix in Table A.10 doesn't match the ESC-Eval paper or repo, and the 2,801-card pool isn't public. |
+| 12 | Table 5: ESC-Eval scores on a "5-point scale"; App. A.2.1: up to 20 turns and EmoLlama-Chat-7B satisfaction | ESC-Eval rates 0-4 on seven dimensions over 5 turns, and scores with its ESC-RANK model. SAGE reports no EmoLlama numbers. |
+| 13 | ESC-Eval uses ESConv-derived role cards | 158 of the 331 English cards come from ESConv dialogues. If some come from SAGE's ESConv training split, the ESC-Eval comparison leaks training data. The paper doesn't address this. |
+
 ## 2. Missing settings a re-implementation must guess
 
 1. **Backbone.** The paper calls it "a single LLM", but Appendix B says the base model is **T5-base**. An unnamed "SFT" model is also trained (max length 2048, cosine schedule, 3 epochs).
@@ -49,4 +53,4 @@ The arithmetic on the headline relative gains (13.4%, 52.1%, 68.0%, 20.7%, 8.6%,
 | 3 | SAGE re-implementation on T5-base with the assumptions above, plus the ablations from Table 6 | 1 GPU with ≥16 GB, several hours | Tables 1, 2, 4, 6 |
 | (opt.) | GPT-4o baseline | OpenAI API key | Table 1 |
 
-Human evaluation (Table 5) and ESC-Eval role-play can't be reproduced as described.
+ESC-Eval (the second dataset) is reproduced with its official public cards, ESC-Role as the seeker and ESC-RANK as the judge (`esc_eval.py`, notebook section 7). SAGE's own Table 5 comes from three of its authors rating responses, which can't be repeated, so that comparison is indicative only.

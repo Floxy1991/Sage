@@ -425,39 +425,38 @@ def p_valid(model, tok, ctx, responses):
     return F.softmax(logits[:, [yes, no]], -1)[:, 0].cpu()
 
 
-def cmd_infer(a):
-    seed_all(a.seed)
-    tok = get_tok(a.selfret)
-    sr = T5ForConditionalGeneration.from_pretrained(a.selfret).to(DEV).eval()
-    rq, codes, emb = load_index(a.index)
-    train = load(f"data/{a.split}/train.jsonl")
-    test = load(f"data/{a.split}/{a.eval_split}.jsonl")
-    if a.limit:
-        test = test[:a.limit]
-    kmap = knowledge_map(a.knowledge, a.eval_split)
-    strat_of = [e["strategy"] for e in train]
-    fusion = None
-    if a.fusion and not a.retrieval_only:
-        cfg = json.load(open(os.path.join(a.fusion, "config.json")))
-        t5 = T5ForConditionalGeneration.from_pretrained(cfg["base"])
-        t5.resize_token_embeddings(len(tok))
-        fusion = FusionT5(t5)
-        fusion.load_state_dict(torch.load(os.path.join(a.fusion, "fusion.pt"), map_location="cpu"))
-        fusion.to(DEV).eval()
-    os.makedirs(a.out, exist_ok=True)
-    f = open(os.path.join(a.out, "predictions.jsonl"), "w")
-    nll_sum = ntok = 0
-    for i, e in enumerate(test):
+class SageModel:
+    """Loaded SAGE pipeline; respond() runs Sec. 3.3-3.5 for one dialogue context."""
+
+    def __init__(self, a):
+        self.a = a
+        self.tok = get_tok(a.selfret)
+        self.sr = T5ForConditionalGeneration.from_pretrained(a.selfret).to(DEV).eval()
+        self.rq, self.codes, self.emb = load_index(a.index)
+        self.train = load(f"data/{a.split}/train.jsonl")
+        self.strat_of = [e["strategy"] for e in self.train]
+        self.kmap = knowledge_map(a.knowledge, a.eval_split)
+        self.fusion = None
+        if a.fusion and not a.retrieval_only:
+            cfg = json.load(open(os.path.join(a.fusion, "config.json")))
+            t5 = T5ForConditionalGeneration.from_pretrained(cfg["base"])
+            t5.resize_token_embeddings(len(self.tok))
+            self.fusion = FusionT5(t5)
+            self.fusion.load_state_dict(torch.load(os.path.join(a.fusion, "fusion.pt"), map_location="cpu"))
+            self.fusion.to(DEV).eval()
+
+    @torch.no_grad()
+    def respond(self, e):
+        a, tok, sr, train = self.a, self.tok, self.sr, self.train
         src = "context: " + ctx_text(e)
         q = embed(sr, tok, [src])[0]
-        qcode = rq.codes(q.unsqueeze(0).to(DEV))[0].cpu()
-        lp = strategy_logprobs(sr, tok, src)
-        sprob = F.softmax(lp / a.tau, 0)
+        qcode = self.rq.codes(q.unsqueeze(0).to(DEV))[0].cpu()
+        sprob = F.softmax(strategy_logprobs(sr, tok, src) / a.tau, 0)
         top_s = [STRATEGIES[j] for j in sprob.topk(a.bs_strat).indices.tolist()]
         cands = []  # (strategy, response, strategy prob)
         for s in top_s:
-            mask = torch.tensor([x == s for x in strat_of])
-            ids = resid_topk(qcode, q, codes, emb, mask, a.r, use_resid=not a.no_resid)
+            mask = torch.tensor([x == s for x in self.strat_of])
+            ids = resid_topk(qcode, q, self.codes, self.emb, mask, a.r, use_resid=not a.no_resid)
             if a.no_constraint:
                 enc = tok(src, return_tensors="pt", max_length=256, truncation=True).to(DEV)
                 dec = tok(f"[STRAT] {s} [RESP]", add_special_tokens=False, return_tensors="pt").input_ids.to(DEV)
@@ -475,7 +474,7 @@ def cmd_infer(a):
         # Eq. 5, in log space.
         pv = p_valid(sr, tok, ctx_text(e), [c[1] for c in cands])
         log_s = torch.tensor([math.log(c[2] + 1e-12) for c in cands]) + torch.log(pv + 1e-12) / a.delta
-        kn = kmap.get(e["id"], {})
+        kn = self.kmap.get(e.get("id"), {})
         cemb = embed(sr, tok, [c[1] for c in cands])
         if kn.get("comet") and not a.no_comet:
             ce = embed(sr, tok, kn["comet"])
@@ -486,21 +485,37 @@ def cmd_infer(a):
         best = int(log_s.argmax())
         s_star, r_star = cands[best][0], cands[best][1]
         pred = r_star
-        if fusion is not None:
-            ctx, com, hel = fusion_inputs(tok, [e], [r_star], [s_star], kmap, not a.no_comet, not a.no_heal)
-            gen = fusion.generate(ctx, com, hel, num_beams=4, max_new_tokens=128, min_new_tokens=10,
-                                  repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0)
+        if self.fusion is not None:
+            ctx, com, hel = fusion_inputs(tok, [e], [r_star], [s_star], self.kmap, not a.no_comet, not a.no_heal)
+            gen = self.fusion.generate(ctx, com, hel, num_beams=4, max_new_tokens=128, min_new_tokens=10,
+                                       repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0)
             pred = tok.decode(gen[0], skip_special_tokens=True).strip()
-            # PPL: gold response under the fusion generator, given the gold strategy (ASSUMPTION).
-            ctx, com, hel = fusion_inputs(tok, [e], [r_star], [e["strategy"]], kmap, not a.no_comet, not a.no_heal)
-            lab = tok([e["response"]], return_tensors="pt", max_length=128, truncation=True).input_ids.to(DEV)
-            with torch.no_grad():
-                loss = fusion(ctx, com, hel, lab).loss
-            nll_sum += loss.item() * lab.shape[1]
-            ntok += lab.shape[1]
-        f.write(json.dumps({"id": e["id"], "response": e["response"], "strategy": e["strategy"],
-                            "pred_strategy": top_s[0], "chosen_strategy": s_star, "prediction": pred,
-                            "candidate": r_star}) + "\n")
+        return {"pred_strategy": top_s[0], "chosen_strategy": s_star, "candidate": r_star, "prediction": pred}
+
+    @torch.no_grad()
+    def gold_nll(self, e, r_star):
+        """PPL term: gold response under the fusion generator, given the gold strategy (ASSUMPTION)."""
+        tok, a = self.tok, self.a
+        ctx, com, hel = fusion_inputs(tok, [e], [r_star], [e["strategy"]], self.kmap, not a.no_comet, not a.no_heal)
+        lab = tok([e["response"]], return_tensors="pt", max_length=128, truncation=True).input_ids.to(DEV)
+        return self.fusion(ctx, com, hel, lab).loss.item() * lab.shape[1], lab.shape[1]
+
+
+def cmd_infer(a):
+    seed_all(a.seed)
+    model = SageModel(a)
+    test = load(f"data/{a.split}/{a.eval_split}.jsonl")
+    if a.limit:
+        test = test[:a.limit]
+    os.makedirs(a.out, exist_ok=True)
+    f = open(os.path.join(a.out, "predictions.jsonl"), "w")
+    nll_sum = ntok = 0
+    for i, e in enumerate(test):
+        out = model.respond(e)
+        if model.fusion is not None:
+            nll, n = model.gold_nll(e, out["candidate"])
+            nll_sum, ntok = nll_sum + nll, ntok + n
+        f.write(json.dumps({"id": e["id"], "response": e["response"], "strategy": e["strategy"], **out}) + "\n")
         if (i + 1) % 50 == 0:
             f.flush()
             print(f"{i + 1}/{len(test)}", flush=True)
