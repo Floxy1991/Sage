@@ -116,6 +116,7 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
         print(f"epoch {ep + 1}/{epochs} loss {tot / (i + 1):.4f}", flush=True)
         model.save_pretrained(out)
         tok.save_pretrained(out)
+        json.dump({"epochs_done": ep + 1, "epochs": epochs}, open(os.path.join(out, "train_state.json"), "w", encoding="utf-8"))
 
 
 def cmd_train_selfret(a):
@@ -335,10 +336,20 @@ def cmd_train_fusion(a):
     for i, e in enumerate(train):
         mask = torch.tensor([s == e["strategy"] for s in strat]) & (dlg != e["dialog_idx"])
         cands.append(train[resid_topk(qcodes[i], q[i], codes, emb, mask, 1)[0]]["response"])
+    # The self-retrieval LM is only needed for the candidates above: free its GPU memory before training.
+    sr.cpu()
+    del sr, q
+    devmod.free_memory()
     kmap = knowledge_map(a.knowledge, "train")
     t5 = T5ForConditionalGeneration.from_pretrained(a.base)
     t5.resize_token_embeddings(len(tok))
+    if getattr(a, "grad_ckpt", True) and devmod.kind(DEV) == "cuda":
+        # Recompute activations in the backward pass: much less memory for ~30% more time.
+        t5.config.use_cache = False
+        t5.gradient_checkpointing_enable()
     model = FusionT5(t5).to(DEV).train()
+    # Effective batch a.bs, run as micro-batches of a.micro_bs (gradient accumulation) so t5-base fits a 16 GB T4.
+    mbs = min(getattr(a, "micro_bs", 0) or a.bs, a.bs)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     idx = list(range(len(train)))
     steps = a.epochs * math.ceil(len(idx) / a.bs)
@@ -347,21 +358,24 @@ def cmd_train_fusion(a):
         random.shuffle(idx)
         tot = 0
         for n, b in enumerate(batches(idx, a.bs)):
-            exs = [train[i] for i in b]
-            ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in b], [e["strategy"] for e in exs], kmap)
-            lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
-            lab[lab == tok.pad_token_id] = -100
-            with devmod.autocast(DEV, AMP):
-                loss = model(ctx, com, hel, lab).loss
-            opt.zero_grad(), loss.backward()
+            opt.zero_grad()
+            for mb in batches(b, mbs):
+                exs = [train[i] for i in mb]
+                ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in mb], [e["strategy"] for e in exs], kmap)
+                lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
+                lab[lab == tok.pad_token_id] = -100
+                with devmod.autocast(DEV, AMP):
+                    loss = model(ctx, com, hel, lab).loss * len(mb) / len(b)
+                loss.backward()
+                tot += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(), sch.step()
-            tot += loss.item()
         print(f"fusion epoch {ep + 1} loss {tot / (n + 1):.4f} lambda {F.softmax(model.lam, 0).tolist()}", flush=True)
-    os.makedirs(a.out, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
-    tok.save_pretrained(a.out)
-    json.dump({"base": a.base}, open(os.path.join(a.out, "config.json"), "w", encoding="utf-8"))
+        # Save after every epoch so a Colab disconnect keeps the last finished epoch.
+        os.makedirs(a.out, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
+        tok.save_pretrained(a.out)
+        json.dump({"base": a.base, "epochs_done": ep + 1}, open(os.path.join(a.out, "config.json"), "w", encoding="utf-8"))
 
 
 # ------------------------------------------------------ stage 5: inference
@@ -605,7 +619,9 @@ def main():
     p.add_argument("--out", default="ckpt/fusion")
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--bs", type=int, default=16)
+    p.add_argument("--bs", type=int, default=16, help="effective batch size")
+    p.add_argument("--micro-bs", type=int, default=4, help="examples per forward pass; lower it on out-of-memory")
+    p.add_argument("--no-grad-ckpt", dest="grad_ckpt", action="store_false", help="turn off gradient checkpointing (only used on CUDA)")
 
     p = sub.add_parser("infer", parents=[common])
     p.add_argument("--selfret", default="ckpt/selfret")

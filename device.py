@@ -80,3 +80,11 @@ def load_causal_lm(model_id, load_4bit=False, device="auto", trust_remote_code=F
     model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype, trust_remote_code=trust_remote_code)
     print("device:", describe(dev), flush=True)
     return model.to(dev).eval()
+
+
+def free_memory():
+    """Release cached GPU memory between pipeline stages."""
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
