@@ -10,6 +10,10 @@ Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support 
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_colab.ipynb) Runs every step on a free T4 GPU and saves outputs to Google Drive. `python compare.py` prints our numbers next to the paper's.
 
+## No NVIDIA GPU? Run it in pieces on your laptop
+
+See [LOCAL.md](LOCAL.md). The scripts now pick CUDA, Apple MPS or the CPU automatically (`--device`), take `--train-limit` for small runs, and `python run_local.py check | bm25 | sage-mini | llm-mini | compare` runs each piece on its own. Full-size training stays on Colab.
+
 ## Setup (on a machine with an NVIDIA GPU, 16GB RAM)
 
 ```bash

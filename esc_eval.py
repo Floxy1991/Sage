@@ -53,13 +53,8 @@ class Chat:
         self.tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=trust_remote_code)
         if self.tok.pad_token is None:
             self.tok.pad_token = self.tok.eos_token
-        cuda = torch.cuda.is_available()
-        dtype = torch.bfloat16 if cuda and torch.cuda.is_bf16_supported() else torch.float16 if cuda else torch.float32
-        kw = {"torch_dtype": dtype, "device_map": "auto" if cuda else None, "trust_remote_code": trust_remote_code}
-        if load_4bit and cuda:
-            from transformers import BitsAndBytesConfig
-            kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=dtype)
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, **kw).eval()
+        from device import load_causal_lm
+        self.model = load_causal_lm(model_id, load_4bit, trust_remote_code=trust_remote_code)
         if adapters:  # {name: path}, one LoRA per ESC-RANK dimension
             from peft import PeftModel
             names = list(adapters)
@@ -88,7 +83,8 @@ class Chat:
 
     def free(self):
         del self.model
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def _alternate(messages):
@@ -130,12 +126,12 @@ def make_system(spec, args):
 
 
 def roleplay(args):
-    cards = json.load(open(args.cards))
+    cards = json.load(open(args.cards, encoding="utf-8"))
     if args.limit:
         cards = cards[:args.limit]
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, "dialogs.json")
-    dialogs = json.load(open(path)) if os.path.exists(path) else {}
+    dialogs = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
     seeker = Chat(args.seeker, load_4bit=args.load_4bit, max_new_tokens=args.max_new_tokens)
     system, sys_chat = make_system(args.system, args)
     for i, card in enumerate(cards):
@@ -154,7 +150,7 @@ def roleplay(args):
             history.append(("sys", ans))
         dialogs[key] = {"source": card.get("source"), "card": card["base"],
                         "dialog": [("AI assistant：" if s == "sys" else "ESC-Role：") + t for s, t in history]}
-        json.dump(dialogs, open(path, "w"), ensure_ascii=False, indent=1)
+        json.dump(dialogs, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         print(f"{i + 1}/{len(cards)}", flush=True)
     seeker.free()
     if sys_chat:
@@ -173,11 +169,11 @@ def load_judge(args):
 
 
 def score(args):
-    dialogs = json.load(open(args.dialogs))
-    prompts = json.load(open(PROMPTS))
+    dialogs = json.load(open(args.dialogs, encoding="utf-8"))
+    prompts = json.load(open(PROMPTS, encoding="utf-8"))
     judge = load_judge(args)
     out_path = os.path.join(os.path.dirname(args.dialogs), f"scores_{args.judge.replace('/', '_').replace(':', '_')}.json")
-    scores = json.load(open(out_path)) if os.path.exists(out_path) else {}
+    scores = json.load(open(out_path, encoding="utf-8")) if os.path.exists(out_path) else {}
     for n, (key, d) in enumerate(dialogs.items()):
         if key in scores:
             continue
@@ -191,11 +187,11 @@ def score(args):
                    + "Based on the rules, give your " + dim + " score (The number only) to the Dialogue.")
             m = re.search(r"[0-4]", judge([{"role": "user", "content": msg}]))
             scores[key][k] = int(m.group()) if m else -1
-        json.dump(scores, open(out_path, "w"), indent=1)
+        json.dump(scores, open(out_path, "w", encoding="utf-8"), indent=1)
         print(f"scored {n + 1}/{len(dialogs)}", flush=True)
     summary = summarise(scores)
     summary.update({"judge": args.judge, "dialogs": args.dialogs})
-    json.dump(summary, open(os.path.join(os.path.dirname(args.dialogs), "esceval.json"), "w"), indent=2)
+    json.dump(summary, open(os.path.join(os.path.dirname(args.dialogs), "esceval.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(summary, indent=2))
     return summary
 

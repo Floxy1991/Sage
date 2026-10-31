@@ -89,13 +89,13 @@ def main():
     ap.add_argument("--esconv", default="data/ESConv.json")
     ap.add_argument("--out", default="data")
     args = ap.parse_args()
-    data = [reformat(d) for d in json.load(open(args.esconv))]
+    data = [reformat(d) for d in json.load(open(args.esconv, encoding="utf-8"))]
     for mode in ("paper", "zcj"):
         os.makedirs(os.path.join(args.out, mode), exist_ok=True)
         for split, dialogs in split_dialogs(data, mode).items():
             ex = to_examples(dialogs, split)
             path = os.path.join(args.out, mode, f"{split}.jsonl")
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 for e in ex:
                     f.write(json.dumps(e) + "\n")
             print(f"{mode:5s} {split:5s} dialogs={len(dialogs):4d} examples={len(ex):5d} -> {path}")

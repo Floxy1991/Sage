@@ -9,6 +9,9 @@ and are greedy by default.
 PPL is the teacher-forced perplexity of the gold response, conditioned on the
 prompt plus the gold strategy line.
 
+Laptop without an NVIDIA GPU: use a small model, e.g.
+  python llm_baseline.py --model Qwen/Qwen2.5-0.5B-Instruct --limit 50 --batch-size 2 --out results/qwen05_check
+
 Usage (GPU):
   python llm_baseline.py --model Qwen/Qwen2.5-7B-Instruct --split paper --out results/qwen
   add --load-4bit on GPUs with less than 16 GB; --limit 200 for a quick check.
@@ -22,6 +25,7 @@ import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from device import load_causal_lm
 from metrics import generation_metrics, strategy_metrics
 from prepare_data import STRATEGIES
 
@@ -92,9 +96,10 @@ def main():
     ap.add_argument("--max-new-tokens", type=int, default=64)
     ap.add_argument("--load-4bit", action="store_true")
     ap.add_argument("--no-ppl", action="store_true")
+    ap.add_argument("--device", default="auto", help="auto | cpu | cuda | mps | dml (see device.py)")
     args = ap.parse_args()
 
-    test = [json.loads(l) for l in open(f"data/{args.split}/test.jsonl")]
+    test = [json.loads(l) for l in open(f"data/{args.split}/test.jsonl", encoding="utf-8")]
     if args.limit:
         test = test[: args.limit]
     os.makedirs(args.out, exist_ok=True)
@@ -103,17 +108,12 @@ def main():
     tok.padding_side = "left"
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
-    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
-    kw = {"torch_dtype": dtype, "device_map": "auto"}
-    if args.load_4bit:
-        from transformers import BitsAndBytesConfig
-        kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=dtype)
-    model = AutoModelForCausalLM.from_pretrained(args.model, **kw).eval()
+    model = load_causal_lm(args.model, args.load_4bit, args.device)
 
     pred_path = os.path.join(args.out, "predictions.jsonl")
-    done = {json.loads(l)["id"] for l in open(pred_path)} if os.path.exists(pred_path) else set()
+    done = {json.loads(l)["id"] for l in open(pred_path, encoding="utf-8")} if os.path.exists(pred_path) else set()
     todo = [e for e in test if e["id"] not in done]
-    with open(pred_path, "a") as f:
+    with open(pred_path, "a", encoding="utf-8") as f:
         for i in range(0, len(todo), args.batch_size):
             batch = todo[i : i + args.batch_size]
             prompts = [build_prompt(tok, e) for e in batch]
@@ -130,13 +130,13 @@ def main():
             f.flush()
             print(f"{min(i + args.batch_size, len(todo))}/{len(todo)}", flush=True)
 
-    rows = [json.loads(l) for l in open(pred_path)]
+    rows = [json.loads(l) for l in open(pred_path, encoding="utf-8")]
     res = {"model": args.model, "split": args.split, "n": len(rows)}
     res.update(generation_metrics([r["response"] for r in rows], [r["prediction"] for r in rows]))
     res.update(strategy_metrics([r["strategy"] for r in rows], [r["pred_strategy"] for r in rows]))
     if all("nll" in r for r in rows):
         res["PPL"] = math.exp(sum(r["nll"] for r in rows) / sum(r["ntok"] for r in rows))
-    json.dump(res, open(os.path.join(args.out, "metrics.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(args.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(res, indent=2))
 
 

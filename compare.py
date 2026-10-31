@@ -37,7 +37,7 @@ def main():
         for name in ("metrics.json", "retrieval.json"):
             p = os.path.join(d, name)
             if os.path.exists(p):
-                j = json.load(open(p))
+                j = json.load(open(p, encoding="utf-8"))
                 m.update(j.get("generation", {}), **j.get("strategy", {}), **j.get("retrieval", {}))
                 m.update({k: v for k, v in j.items() if isinstance(v, (int, float))})
         run = os.path.basename(d.rstrip("/"))
@@ -56,7 +56,7 @@ def main():
         print("| run | n | judge | " + " | ".join(ESC_COLS) + " |")
         print("|---|---|---|" + "---|" * len(ESC_COLS))
         for p in esc:
-            j = json.load(open(p))
+            j = json.load(open(p, encoding="utf-8"))
             run = os.path.basename(os.path.dirname(p))
             print(f"| {run} (ours) | {j['n']} | {j.get('judge', '')} | "
                   + " | ".join(fmt(j["sage_scale_1to5"].get(c)) for c in ESC_COLS) + " |")

@@ -34,18 +34,21 @@ from transformers import (AutoTokenizer, T5ForConditionalGeneration,
                           get_cosine_schedule_with_warmup, get_linear_schedule_with_warmup)
 from transformers.modeling_outputs import BaseModelOutput
 
+import device as devmod
 from prepare_data import STRATEGIES
 
-DEV = "cuda" if torch.cuda.is_available() else "cpu"
+# Set in main() from --device (auto picks CUDA, then Apple MPS, then CPU; see device.py).
+DEV = devmod.pick("auto")
 # bf16 autocast only where the GPU supports it (not on Colab T4); T5 is unstable in fp16, so fall back to fp32.
-AMP = DEV == "cuda" and torch.cuda.is_bf16_supported()
+AMP = devmod.bf16_ok(DEV)
 SPECIAL = ["[STRAT]", "[RESP]", "[CAND]", "[CTX]"]
 COMET_RELS = ["xIntent", "xNeed", "xEffect", "xWant"]
 
 
 # ---------------------------------------------------------------- utilities
-def load(path):
-    return [json.loads(l) for l in open(path)]
+def load(path, limit=0):
+    rows = [json.loads(l) for l in open(path, encoding="utf-8")]
+    return rows[:limit] if limit else rows
 
 
 def seed_all(s):
@@ -103,7 +106,7 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
             enc = tok([x for x, _ in b], max_length=256, truncation=True, padding=True, return_tensors="pt").to(DEV)
             lab = tok([y for _, y in b], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
             lab[lab == tok.pad_token_id] = -100
-            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=use_amp):
+            with devmod.autocast(DEV, use_amp):
                 loss = model(**enc, labels=lab).loss / grad_accum
             loss.backward()
             if (i + 1) % grad_accum == 0:
@@ -120,7 +123,7 @@ def cmd_train_selfret(a):
     tok = get_tok(a.base)
     model = T5ForConditionalGeneration.from_pretrained(a.base)
     model.resize_token_embeddings(len(tok))
-    train = load(f"data/{a.split}/train.jsonl")
+    train = load(f"data/{a.split}/train.jsonl", a.train_limit)
     pairs = selfret_pairs(train, not a.no_strategy_token)
     # Table B.11 "SFT" column: lr 2e-5, bs 16, 3 epochs, warmup 0.03, cosine. ASSUMPTION: T5 needs a
     # higher lr than an LLM; default 1e-4 (the "Retrieval" column), override with --lr.
@@ -188,7 +191,7 @@ def cmd_build_index(a):
     seed_all(a.seed)
     tok = get_tok(a.model)
     model = T5ForConditionalGeneration.from_pretrained(a.model)
-    train = load(f"data/{a.split}/train.jsonl")
+    train = load(f"data/{a.split}/train.jsonl", a.train_limit)
     R = embed(model, tok, [e["response"] for e in train])
     rq = RQVAE(d_in=R.shape[1]).to(DEV)
     opt = torch.optim.AdamW(rq.parameters(), lr=1e-4, weight_decay=0.01)
@@ -227,7 +230,7 @@ def cmd_knowledge(a):
     from transformers import AutoModelForSeq2SeqLM
     sent_tok = get_tok(a.model)
     sent = T5ForConditionalGeneration.from_pretrained(a.model)
-    heal = [json.loads(l)["text"] for l in open(a.heal)] if a.heal else []
+    heal = [json.loads(l)["text"] for l in open(a.heal, encoding="utf-8")] if a.heal else []
     heal_emb = embed(sent, sent_tok, heal) if heal else None
     if a.comet:
         ctok = AutoTokenizer.from_pretrained(a.comet)
@@ -253,7 +256,7 @@ def cmd_knowledge(a):
             for e, c, h in zip(b, comet, heal_k):
                 out.append({"id": e["id"], "comet": c, "heal": h})
         os.makedirs(a.out, exist_ok=True)
-        with open(os.path.join(a.out, f"{split}.jsonl"), "w") as f:
+        with open(os.path.join(a.out, f"{split}.jsonl"), "w", encoding="utf-8") as f:
             for r in out:
                 f.write(json.dumps(r) + "\n")
         print(split, len(out), flush=True)
@@ -302,7 +305,7 @@ def fusion_inputs(tok, exs, cands, strategies, kmap, use_comet=True, use_heal=Tr
 
 
 def load_index(path):
-    ix = torch.load(os.path.join(path, "index.pt"))
+    ix = torch.load(os.path.join(path, "index.pt"), map_location="cpu")
     rq = RQVAE(d_in=ix["d_in"]).to(DEV)
     rq.load_state_dict(ix["rq"])
     return rq.eval(), ix["codes"], ix["emb"]
@@ -320,8 +323,9 @@ def cmd_train_fusion(a):
     seed_all(a.seed)
     tok = get_tok(a.selfret)
     sr = T5ForConditionalGeneration.from_pretrained(a.selfret)
-    train = load(f"data/{a.split}/train.jsonl")
     rq, codes, emb = load_index(a.index)
+    # The index covers the first len(codes) training responses (build-index --train-limit).
+    train = load(f"data/{a.split}/train.jsonl", len(codes))
     # Candidate for training = best ResID neighbour with the gold strategy from another dialogue.
     q = embed(sr, tok, ["context: " + ctx_text(e) for e in train])
     qcodes = rq.codes(q.to(DEV)).cpu()
@@ -347,7 +351,7 @@ def cmd_train_fusion(a):
             ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in b], [e["strategy"] for e in exs], kmap)
             lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
             lab[lab == tok.pad_token_id] = -100
-            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=AMP):
+            with devmod.autocast(DEV, AMP):
                 loss = model(ctx, com, hel, lab).loss
             opt.zero_grad(), loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -357,7 +361,7 @@ def cmd_train_fusion(a):
     os.makedirs(a.out, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
     tok.save_pretrained(a.out)
-    json.dump({"base": a.base}, open(os.path.join(a.out, "config.json"), "w"))
+    json.dump({"base": a.base}, open(os.path.join(a.out, "config.json"), "w", encoding="utf-8"))
 
 
 # ------------------------------------------------------ stage 5: inference
@@ -433,12 +437,12 @@ class SageModel:
         self.tok = get_tok(a.selfret)
         self.sr = T5ForConditionalGeneration.from_pretrained(a.selfret).to(DEV).eval()
         self.rq, self.codes, self.emb = load_index(a.index)
-        self.train = load(f"data/{a.split}/train.jsonl")
+        self.train = load(f"data/{a.split}/train.jsonl", len(self.codes))
         self.strat_of = [e["strategy"] for e in self.train]
         self.kmap = knowledge_map(a.knowledge, a.eval_split)
         self.fusion = None
         if a.fusion and not a.retrieval_only:
-            cfg = json.load(open(os.path.join(a.fusion, "config.json")))
+            cfg = json.load(open(os.path.join(a.fusion, "config.json"), encoding="utf-8"))
             t5 = T5ForConditionalGeneration.from_pretrained(cfg["base"])
             t5.resize_token_embeddings(len(self.tok))
             self.fusion = FusionT5(t5)
@@ -508,7 +512,7 @@ def cmd_infer(a):
     if a.limit:
         test = test[:a.limit]
     os.makedirs(a.out, exist_ok=True)
-    f = open(os.path.join(a.out, "predictions.jsonl"), "w")
+    f = open(os.path.join(a.out, "predictions.jsonl"), "w", encoding="utf-8")
     nll_sum = ntok = 0
     for i, e in enumerate(test):
         out = model.respond(e)
@@ -525,7 +529,7 @@ def cmd_infer(a):
     if ntok:
         res["PPL"] = math.exp(nll_sum / ntok)
     res["args"] = vars(a)
-    json.dump(res, open(os.path.join(a.out, "metrics.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(a.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps({k: v for k, v in res.items() if k != "args"}, indent=2))
 
 
@@ -559,7 +563,7 @@ def cmd_eval_retrieval(a):
     res = retrieval_metrics([r["ranked_ids"] for r in rows], [r["gold_id"] for r in rows])
     res["pool_size"] = a.pool_size
     os.makedirs(a.out, exist_ok=True)
-    json.dump(res, open(os.path.join(a.out, "retrieval.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(a.out, "retrieval.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(res, indent=2))
 
 
@@ -569,6 +573,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--split", default="paper")
     common.add_argument("--seed", type=int, default=42)
+    common.add_argument("--device", default="auto", help="auto | cpu | cuda | mps | dml (see device.py)")
 
     p = sub.add_parser("train-selfret", parents=[common])
     p.add_argument("--base", default="t5-base")
@@ -577,11 +582,13 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--no-strategy-token", action="store_true")
+    p.add_argument("--train-limit", type=int, default=0, help="train on the first N examples only (laptop runs)")
 
     p = sub.add_parser("build-index", parents=[common])
     p.add_argument("--model", default="ckpt/selfret")
     p.add_argument("--out", default="ckpt/index")
     p.add_argument("--epochs", type=int, default=50)
+    p.add_argument("--train-limit", type=int, default=0, help="index the first N training responses only")
 
     p = sub.add_parser("knowledge", parents=[common])
     p.add_argument("--model", default="ckpt/selfret")
@@ -628,6 +635,10 @@ def main():
     p.add_argument("--limit", type=int, default=0)
 
     a = ap.parse_args()
+    global DEV, AMP
+    DEV = devmod.pick(a.device)
+    AMP = devmod.bf16_ok(DEV)
+    print("device:", devmod.describe(DEV), flush=True)
     {"train-selfret": cmd_train_selfret, "build-index": cmd_build_index, "knowledge": cmd_knowledge,
      "train-fusion": cmd_train_fusion, "infer": cmd_infer, "eval-retrieval": cmd_eval_retrieval}[a.cmd](a)
 
