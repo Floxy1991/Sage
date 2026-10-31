@@ -51,6 +51,8 @@ On a Mac, the same commands work in Terminal with `source .venv/bin/activate`; t
 
 ## 2. Run the pieces
 
+**Prefer Jupyter?** Open `SAGE_reproduction.ipynb` (`pip install notebook`, then `jupyter notebook`) and run it top to bottom. With no NVIDIA GPU it switches to laptop mode by itself: t5-small, 3,000 training examples, 50 test examples, Qwen2.5-0.5B, and no ESC-Eval, about 2 hours in all. The commands below do the same thing as separate scripts.
+
 Run each one on its own; every stage writes to `results/<name>/` and can be repeated.
 
 ```powershell
