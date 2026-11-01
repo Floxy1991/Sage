@@ -110,5 +110,5 @@ PyTorch has no CUDA for AMD integrated GPUs on Windows. Two options exist, and n
 
 - Close other heavy apps. t5-small with `--bs 8` needs a few GB of RAM; t5-base needs roughly three times as much. If you run out of memory, lower `--micro-bs` on `train-fusion` (default 4) or `--bs` on `train-selfret`; `--micro-bs` keeps the effective batch size, so results don't change.
 - Plug the laptop in and set Windows power mode to "Best performance"; on battery the CPU throttles and runs take 2-3x longer.
-- If a run is cut off, re-run the same command. `llm_baseline.py` resumes where it stopped; a SAGE stage starts that stage over, but earlier stages are kept.
+- If a run is cut off, re-run the same command. Every script continues where it stopped: SAGE training from the last finished epoch, inference and the LLM baseline from the last saved example.
 - `UnicodeDecodeError` on Windows means an old copy of the code: `git pull`. Files are now read as UTF-8 everywhere.

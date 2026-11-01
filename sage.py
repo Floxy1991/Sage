@@ -95,14 +95,57 @@ def selfret_pairs(train, use_strategy, neg_ratio=1.0):
     return pairs
 
 
+def resume_state(out, epochs, model, opt, sch, weights=None):
+    """Epochs already done in `out` (0 for a fresh run). Restores model, optimizer, scheduler and RNG state."""
+    st, op = os.path.join(out, "train_state.json"), os.path.join(out, "optim.pt")
+    if not (os.path.exists(st) and os.path.exists(op)):
+        return 0
+    state = json.load(open(st, encoding="utf-8"))
+    done = state.get("epochs_done", 0)
+    if state.get("epochs") != epochs or not 0 < done < epochs:
+        return 0
+    if weights:  # plain state dict (fusion model)
+        model.load_state_dict(torch.load(weights, map_location="cpu"))
+    else:
+        model.load_state_dict(T5ForConditionalGeneration.from_pretrained(out).state_dict())
+    ck = torch.load(op, map_location="cpu", weights_only=False)
+    opt.load_state_dict(ck["opt"])
+    sch.load_state_dict(ck["sch"])
+    random.setstate(ck["py_rng"])
+    torch.set_rng_state(ck["torch_rng"])
+    print(f"resuming {out} after epoch {done}/{epochs}", flush=True)
+    return done
+
+
+def save_state(out, done, epochs, opt, sch):
+    """Record progress; keep optimizer state only while the run is unfinished (it is ~2x the model size)."""
+    json.dump({"epochs_done": done, "epochs": epochs}, open(os.path.join(out, "train_state.json"), "w", encoding="utf-8"))
+    op = os.path.join(out, "optim.pt")
+    if done < epochs:
+        torch.save({"opt": opt.state_dict(), "sch": sch.state_dict(), "py_rng": random.getstate(),
+                    "torch_rng": torch.get_rng_state()}, op + ".tmp")
+        os.replace(op + ".tmp", op)  # never leave a half-written file if the runtime dies mid-save
+    elif os.path.exists(op):
+        os.remove(op)
+
+
+def train_finished(out, epochs):
+    st = os.path.join(out, "train_state.json")
+    return os.path.exists(st) and json.load(open(st, encoding="utf-8")).get("epochs_done", 0) >= epochs \
+        and json.load(open(st, encoding="utf-8")).get("epochs") == epochs
+
+
 def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear", grad_accum=1, fp16=True):
+    """Train with AdamW; save model, optimizer and scheduler after every epoch, and continue from the last
+    finished epoch if `out` holds an unfinished run with the same number of epochs (e.g. after a Colab disconnect)."""
     model.to(DEV).train()
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    steps = epochs * math.ceil(len(pairs) / bs) // grad_accum
+    steps = max(1, epochs * math.ceil(len(pairs) / bs) // grad_accum)
     mk = get_cosine_schedule_with_warmup if sched == "cosine" else get_linear_schedule_with_warmup
     sch = mk(opt, int(warmup * steps) if warmup < 1 else int(warmup), steps)
     use_amp = fp16 and AMP
-    for ep in range(epochs):
+    start = resume_state(out, epochs, model, opt, sch)
+    for ep in range(start, epochs):
         random.shuffle(pairs)
         tot = 0.0
         for i, b in enumerate(batches(pairs, bs)):
@@ -119,11 +162,14 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
         print(f"epoch {ep + 1}/{epochs} loss {tot / (i + 1):.4f}", flush=True)
         model.save_pretrained(out)
         tok.save_pretrained(out)
-        json.dump({"epochs_done": ep + 1, "epochs": epochs}, open(os.path.join(out, "train_state.json"), "w", encoding="utf-8"))
+        save_state(out, ep + 1, epochs, opt, sch)
 
 
 def cmd_train_selfret(a):
     seed_all(a.seed)
+    if train_finished(a.out, a.epochs):
+        print(f"{a.out}: all {a.epochs} epochs already trained", flush=True)
+        return
     tok = get_tok(a.base)
     model = T5ForConditionalGeneration.from_pretrained(a.base)
     model.resize_token_embeddings(len(tok))
@@ -131,7 +177,8 @@ def cmd_train_selfret(a):
     pairs = selfret_pairs(train, not a.no_strategy_token)
     # Table B.11 "SFT" column: lr 2e-5, bs 16, 3 epochs, warmup 0.03, cosine. ASSUMPTION: T5 needs a
     # higher lr than an LLM; default 1e-4 (the "Retrieval" column), override with --lr.
-    train_seq2seq(model, tok, pairs, a.out, a.epochs, a.lr, a.bs, 0.03, "cosine")
+    train_seq2seq(model, tok, pairs, a.out, a.epochs, a.lr, a.bs, getattr(a, "warmup", 0.03),
+                  getattr(a, "sched", "cosine"), getattr(a, "grad_accum", 1))
 
 
 # ------------------------------------------------------ stage 2: RQ-VAE ResIDs
@@ -325,6 +372,9 @@ def resid_topk(qcode, qemb, codes, emb, mask, r, use_resid=True):
 
 def cmd_train_fusion(a):
     seed_all(a.seed)
+    if train_finished(a.out, a.epochs) and os.path.exists(os.path.join(a.out, "fusion.pt")):
+        print(f"{a.out}: all {a.epochs} epochs already trained", flush=True)
+        return
     tok = get_tok(a.selfret)
     sr = T5ForConditionalGeneration.from_pretrained(a.selfret)
     rq, codes, emb = load_index(a.index)
@@ -357,9 +407,12 @@ def cmd_train_fusion(a):
     mbs = min(getattr(a, "micro_bs", 0) or a.bs, a.bs)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     idx = list(range(len(train)))
-    steps = a.epochs * math.ceil(len(idx) / a.bs)
-    sch = get_linear_schedule_with_warmup(opt, 100, steps)
-    for ep in range(a.epochs):
+    steps = max(1, a.epochs * math.ceil(len(idx) / a.bs))
+    warm = getattr(a, "warmup", 100)
+    mk = get_cosine_schedule_with_warmup if getattr(a, "sched", "linear") == "cosine" else get_linear_schedule_with_warmup
+    sch = mk(opt, int(warm * steps) if warm < 1 else int(warm), steps)
+    start = resume_state(a.out, a.epochs, model, opt, sch, weights=os.path.join(a.out, "fusion.pt"))
+    for ep in range(start, a.epochs):
         random.shuffle(idx)
         tot = 0
         for n, b in enumerate(batches(idx, a.bs)):
@@ -383,6 +436,7 @@ def cmd_train_fusion(a):
         torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
         tok.save_pretrained(a.out)
         json.dump({"base": a.base, "epochs_done": ep + 1}, open(os.path.join(a.out, "config.json"), "w", encoding="utf-8"))
+        save_state(a.out, ep + 1, a.epochs, opt, sch)
 
 
 # ------------------------------------------------------ stage 5: inference
@@ -522,8 +576,11 @@ class SageModel:
         pred = r_star
         if self.fusion is not None:
             ctx, com, hel = fusion_inputs(tok, [e], [r_star], [s_star], self.kmap, not a.no_comet, not a.no_heal)
+            # Table B.12: beam 4, repetition penalty 1.2, 3-gram blocking, min length 10, length penalty 1.0;
+            # with --sample also nucleus sampling (top-p 0.9, temperature 0.8) as the paper lists.
+            samp = dict(do_sample=True, top_p=0.9, temperature=0.8) if getattr(a, "sample", False) else {}
             gen = self.fusion.generate(ctx, com, hel, num_beams=4, max_new_tokens=128, min_new_tokens=10,
-                                       repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0)
+                                       repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0, **samp)
             pred = tok.decode(gen[0], skip_special_tokens=True).strip()
         return {"pred_strategy": top_s[0], "chosen_strategy": s_star, "candidate": r_star, "prediction": pred}
 
@@ -536,6 +593,32 @@ class SageModel:
         return self.fusion(ctx, com, hel, lab).loss.item() * lab.shape[1], lab.shape[1]
 
 
+def resume_rows(out, path, a, name="predictions"):
+    """Ids already written to `path` by a run with the same settings; otherwise start the file afresh."""
+    keep = {k: v for k, v in vars(a).items() if k not in ("out", "device")}
+    # Also stamp when the checkpoints were written, so rows from older checkpoints are never reused.
+    for k in ("selfret", "index", "fusion"):
+        d = getattr(a, k, None)
+        if d and os.path.isdir(d):
+            keep[k + "_mtime"] = max(os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d))
+    stamp = os.path.join(out, f"{name}_args.json")
+    same = os.path.exists(stamp) and json.load(open(stamp, encoding="utf-8")) == json.loads(json.dumps(keep))
+    if not (same and os.path.exists(path)):
+        open(path, "w", encoding="utf-8").close()
+        json.dump(keep, open(stamp, "w", encoding="utf-8"))
+        return set()
+    ids = set()
+    for line in open(path, encoding="utf-8"):
+        try:
+            ids.add(json.loads(line)["id"])
+        except (json.JSONDecodeError, KeyError):  # last line cut off by a disconnect
+            pass
+    # rewrite without a broken last line
+    rows = [l for l in open(path, encoding="utf-8") if l.strip().endswith("}")]
+    open(path, "w", encoding="utf-8").writelines(rows)
+    return ids
+
+
 def cmd_infer(a):
     seed_all(a.seed)
     model = SageModel(a)
@@ -543,22 +626,29 @@ def cmd_infer(a):
     if a.limit:
         test = test[:a.limit]
     os.makedirs(a.out, exist_ok=True)
-    f = open(os.path.join(a.out, "predictions.jsonl"), "w", encoding="utf-8")
-    nll_sum = ntok = 0
-    for i, e in enumerate(test):
+    pred = os.path.join(a.out, "predictions.jsonl")
+    done = resume_rows(a.out, pred, a)  # continue an interrupted run with the same settings
+    f = open(pred, "a", encoding="utf-8")
+    todo = [e for e in test if e["id"] not in done]
+    if done:
+        print(f"resuming: {len(done)} examples already done, {len(todo)} to go", flush=True)
+    for i, e in enumerate(todo):
+        random.seed(a.seed * 1000003 + test.index(e))  # same result whether or not the run was resumed
         out = model.respond(e)
+        row = {"id": e["id"], "response": e["response"], "strategy": e["strategy"], **out}
         if model.fusion is not None:
-            nll, n = model.gold_nll(e, out["candidate"])
-            nll_sum, ntok = nll_sum + nll, ntok + n
-        f.write(json.dumps({"id": e["id"], "response": e["response"], "strategy": e["strategy"], **out}) + "\n")
-        if (i + 1) % 50 == 0:
+            row["nll"], row["ntok"] = model.gold_nll(e, out["candidate"])
+        f.write(json.dumps(row) + "\n")
+        if (i + 1) % 20 == 0:
             f.flush()
-            print(f"{i + 1}/{len(test)}", flush=True)
+            print(f"{len(done) + i + 1}/{len(test)}", flush=True)
     f.close()
     from metrics import evaluate_file
-    res = evaluate_file(os.path.join(a.out, "predictions.jsonl"))
+    res = evaluate_file(pred)
+    rows = [json.loads(l) for l in open(pred, encoding="utf-8")]
+    ntok = sum(r.get("ntok", 0) for r in rows)
     if ntok:
-        res["PPL"] = math.exp(nll_sum / ntok)
+        res["PPL"] = math.exp(sum(r.get("nll", 0) for r in rows) / ntok)
     res["args"] = vars(a)
     json.dump(res, open(os.path.join(a.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps({k: v for k, v in res.items() if k != "args"}, indent=2))
@@ -577,9 +667,15 @@ def cmd_eval_retrieval(a):
         test = test[:a.limit]
     pemb = embed(sr, tok, [e["response"] for e in test])
     pcodes = rq.codes(pemb.to(DEV)).cpu()
-    rows = []
+    os.makedirs(a.out, exist_ok=True)
+    rows_path = os.path.join(a.out, "retrieval_rows.jsonl")
+    done = resume_rows(a.out, rows_path, a, name="retrieval")
+    rf = open(rows_path, "a", encoding="utf-8")
     for i, e in enumerate(test):
-        pool = random.sample([j for j in range(len(test)) if j != i], min(a.pool_size - 1, len(test) - 1)) + [i]
+        if e["id"] in done:
+            continue
+        rng = random.Random(a.seed * 1000003 + i)  # each example's pool is fixed, so resuming gives the same result
+        pool = rng.sample([j for j in range(len(test)) if j != i], min(a.pool_size - 1, len(test) - 1)) + [i]
         src = "context: " + ctx_text(e)
         q = embed(sr, tok, [src])[0]
         qcode = rq.codes(q.unsqueeze(0).to(DEV))[0].cpu()
@@ -589,7 +685,12 @@ def cmd_eval_retrieval(a):
         ranked = constrained_beam(sr, tok, src, list(targets), min(10, len(targets)))
         ids = [targets.get(t, -1) for t, _ in ranked]
         ids = [j for j in ids if j >= 0]
-        rows.append({"id": e["id"], "ranked_ids": ids, "gold_id": i, "num_prev_turns": e["num_prev_turns"]})
+        rf.write(json.dumps({"id": e["id"], "ranked_ids": ids, "gold_id": i, "num_prev_turns": e["num_prev_turns"]}) + "\n")
+        if (i + 1) % 20 == 0:
+            rf.flush()
+            print(f"retrieval {i + 1}/{len(test)}", flush=True)
+    rf.close()
+    rows = [json.loads(l) for l in open(rows_path, encoding="utf-8")]
     from metrics import retrieval_metrics
     res = retrieval_metrics([r["ranked_ids"] for r in rows], [r["gold_id"] for r in rows])
     res["pool_size"] = a.pool_size
@@ -613,6 +714,9 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--no-strategy-token", action="store_true")
+    p.add_argument("--grad-accum", type=int, default=1, help="effective batch = --bs x --grad-accum")
+    p.add_argument("--warmup", type=float, default=0.03, help="warmup: fraction of steps if < 1, else steps")
+    p.add_argument("--sched", choices=["cosine", "linear"], default="cosine")
     p.add_argument("--train-limit", type=int, default=0, help="train on the first N examples only (laptop runs)")
 
     p = sub.add_parser("build-index", parents=[common])
@@ -639,6 +743,8 @@ def main():
     p.add_argument("--bs", type=int, default=16, help="effective batch size")
     p.add_argument("--micro-bs", type=int, default=4, help="examples per forward pass; lower it on out-of-memory")
     p.add_argument("--no-grad-ckpt", dest="grad_ckpt", action="store_false", help="turn off gradient checkpointing (only used on CUDA)")
+    p.add_argument("--warmup", type=float, default=100, help="warmup: fraction of steps if < 1, else steps")
+    p.add_argument("--sched", choices=["cosine", "linear"], default="linear")
 
     p = sub.add_parser("infer", parents=[common])
     p.add_argument("--selfret", default="ckpt/selfret")
@@ -656,6 +762,7 @@ def main():
     p.add_argument("--delta", type=float, default=1.0)
     p.add_argument("--alpha", type=float, default=0.5)
     p.add_argument("--beta", type=float, default=0.5)
+    p.add_argument("--sample", action="store_true", help="paper decoding: nucleus sampling (top-p 0.9, T 0.8) in beam search")
     for flag in ("no-constraint", "no-resid", "no-comet", "no-heal", "retrieval-only"):
         p.add_argument(f"--{flag}", action="store_true")
 

@@ -65,13 +65,39 @@ def build_prompt(tok, ex):
         return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
 
 
+# Words that identify each strategy when a model abbreviates or rephrases its name.
+STRATEGY_KEYWORDS = [
+    ("Restatement or Paraphrasing", ("restat", "paraphras", "rephras")),
+    ("Reflection of feelings", ("reflect", "feeling")),
+    ("Self-disclosure", ("self-disclos", "self disclos", "disclos")),
+    ("Affirmation and Reassurance", ("affirm", "reassur", "encourag", "validat")),
+    ("Providing Suggestions", ("suggest", "advice", "advis", "recommend")),
+    ("Information", ("information", "inform", "fact")),
+    ("Question", ("question", "ask", "inquir", "clarif")),
+    ("Others", ("other", "pleasantr", "greet")),
+]
+
+
+def match_strategy(raw):
+    """Map a model's strategy text to one of the 8 labels; None if nothing matches."""
+    raw = raw.lower()
+    hits = [s for s in STRATEGIES if s.lower() in raw]
+    if hits:
+        return min(hits, key=lambda s: raw.index(s.lower()))  # earliest full name
+    found = [(min(raw.find(k) for k in keys if k in raw), s) for s, keys in STRATEGY_KEYWORDS if any(k in raw for k in keys)]
+    return min(found)[1] if found else None
+
+
 def parse(text):
-    m = re.search(r"Strategy:\s*(.+)", text)
-    raw = m.group(1).strip().lower() if m else ""
-    strat = next((s for s in STRATEGIES if s.lower() in raw or raw.startswith(s.split()[0].lower())), "Others")
-    r = re.search(r"Response:\s*(.+)", text, re.S)
-    resp = (r.group(1) if r else text).strip().split("\n")[0]
-    return strat, resp
+    """Return (strategy, response, parsed_ok). Tolerates markdown (**Strategy:**), brackets, '-' or ':'
+    separators and abbreviated names. Unparseable strategies fall back to "Others" with parsed_ok False."""
+    clean = text.replace("**", "").replace("__", "").replace("`", "")
+    m = re.search(r"strateg(?:y|ies)\s*(?:name)?\s*[:\-\u2013=]\s*(.+)", clean, re.I)
+    strat = match_strategy(m.group(1)) if m else None
+    r = re.search(r"response\s*[:\-\u2013=]\s*(.+)", clean, re.I | re.S)
+    resp = (r.group(1) if r else re.sub(r"(?im)^\s*strateg.*$", "", clean)).strip()
+    resp = next((l.strip() for l in resp.split("\n") if l.strip()), "").strip("\"' ")
+    return strat or "Others", resp, strat is not None
 
 
 @torch.no_grad()
@@ -115,8 +141,19 @@ def main():
     model = load_causal_lm(args.model, args.load_4bit, args.device)
 
     pred_path = os.path.join(args.out, "predictions.jsonl")
-    done = {json.loads(l)["id"] for l in open(pred_path, encoding="utf-8")} if os.path.exists(pred_path) else set()
+    old = [json.loads(l) for l in open(pred_path, encoding="utf-8")] if os.path.exists(pred_path) else []
+    done = {r["id"] for r in old}
     todo = [e for e in test if e["id"] not in done]
+    # Rows from an earlier run whose PPL term came out nan/inf (fp16 overflow): recompute just that term.
+    by_id = {e["id"]: e for e in test}
+    redo = [r for r in old if not args.no_ppl and r["id"] in by_id and not math.isfinite(r.get("nll", float("nan")))]
+    if redo:
+        print(f"recomputing the PPL term for {len(redo)} earlier rows", flush=True)
+        for r in redo:
+            r["nll"], r["ntok"] = gold_nll(model, tok, build_prompt(tok, by_id[r["id"]]), by_id[r["id"]])
+        with open(pred_path, "w", encoding="utf-8") as f:
+            for r in old:
+                f.write(json.dumps(r) + "\n")
     with open(pred_path, "a", encoding="utf-8") as f:
         for i in range(0, len(todo), args.batch_size):
             batch = todo[i : i + args.batch_size]
@@ -125,7 +162,7 @@ def main():
             out = model.generate(**enc, max_new_tokens=args.max_new_tokens, do_sample=False, pad_token_id=tok.pad_token_id)
             texts = tok.batch_decode(out[:, enc.input_ids.shape[1]:], skip_special_tokens=True)
             for e, p, t in zip(batch, prompts, texts):
-                strat, resp = parse(t)
+                strat, resp, _ = parse(t)
                 row = {"id": e["id"], "response": e["response"], "strategy": e["strategy"],
                        "prediction": resp, "pred_strategy": strat, "raw": t}
                 if not args.no_ppl:
@@ -135,7 +172,12 @@ def main():
             print(f"{min(i + args.batch_size, len(todo))}/{len(todo)}", flush=True)
 
     rows = [json.loads(l) for l in open(pred_path, encoding="utf-8")]
-    res = {"model": args.model, "split": args.split, "n": len(rows)}
+    # Re-parse the raw outputs, so an improved parser also re-scores runs made before it.
+    for r in rows:
+        if "raw" in r:
+            r["pred_strategy"], r["prediction"], r["parsed"] = parse(r["raw"])
+    res = {"model": args.model, "split": args.split, "n": len(rows),
+           "strategy_unparsed": sum(not r.get("parsed", True) for r in rows)}
     res.update(generation_metrics([r["response"] for r in rows], [r["prediction"] for r in rows]))
     res.update(strategy_metrics([r["strategy"] for r in rows], [r["pred_strategy"] for r in rows]))
     if all("nll" in r for r in rows):
