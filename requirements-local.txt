@@ -9,3 +9,4 @@ scikit-learn
 rank-bm25
 psutil
 # Optional, AMD/Intel GPU on Windows (inference only, experimental): pip install torch-directml
+pandas

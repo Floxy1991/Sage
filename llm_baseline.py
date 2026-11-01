@@ -82,8 +82,11 @@ def gold_nll(model, tok, prompt, ex):
     ids = tok(full, return_tensors="pt", add_special_tokens=False).input_ids.to(model.device)
     labels = ids.clone()
     labels[:, : pre.shape[1]] = -100
-    loss = model(input_ids=ids, labels=labels).loss
-    n = int((labels != -100).sum())
+    # Loss in fp32: on fp16 GPUs such as the T4 the model's own loss can overflow to inf/nan.
+    logits = model(input_ids=ids).logits[:, :-1].float()
+    tgt = labels[:, 1:]
+    loss = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), tgt.reshape(-1), ignore_index=-100)
+    n = int((tgt != -100).sum())
     return float(loss) * n, n
 
 
@@ -136,7 +139,11 @@ def main():
     res.update(generation_metrics([r["response"] for r in rows], [r["prediction"] for r in rows]))
     res.update(strategy_metrics([r["strategy"] for r in rows], [r["pred_strategy"] for r in rows]))
     if all("nll" in r for r in rows):
-        res["PPL"] = math.exp(sum(r["nll"] for r in rows) / sum(r["ntok"] for r in rows))
+        ok = [r for r in rows if r["ntok"] and math.isfinite(r["nll"])]
+        if ok:
+            res["PPL"] = math.exp(sum(r["nll"] for r in ok) / sum(r["ntok"] for r in ok))
+        if len(ok) < len(rows):
+            res["PPL_skipped"] = len(rows) - len(ok)  # examples whose loss was not finite or had no target tokens
     json.dump(res, open(os.path.join(args.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(res, indent=2))
 

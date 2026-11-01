@@ -428,9 +428,19 @@ def constrained_beam(model, tok, src, targets, beams):
     out = model.generate(**enc, num_beams=beams, num_return_sequences=min(beams, len(targets)),
                          prefix_allowed_tokens_fn=allowed, max_new_tokens=160, output_scores=True,
                          return_dict_in_generate=True, length_penalty=1.0, decoder_start_token_id=start)
-    texts = tok.batch_decode(out.sequences, skip_special_tokens=False)
-    clean = [t.replace("<pad>", "").replace("</s>", "").strip() for t in texts]
-    return list(zip(clean, out.sequences_scores.cpu().tolist()))
+    # Map each beam back to its candidate by token ids. Decoding the ids does not round-trip exactly
+    # (e.g. "Question [RESP]" decodes as "Question[RESP]"), so comparing strings would match nothing.
+    by_ids = {tuple(q): t for q, t in zip(seqs, targets)}
+    res = []
+    for ids, score in zip(out.sequences.tolist(), out.sequences_scores.cpu().tolist()):
+        ids = ids[1:]  # drop decoder start token
+        if tok.eos_token_id in ids:
+            ids = ids[:ids.index(tok.eos_token_id) + 1]
+        text = by_ids.get(tuple(ids))
+        if text is None:  # cannot happen under the trie constraint, but keep the decoded text if it does
+            text = tok.decode(ids, skip_special_tokens=False).replace("<pad>", "").replace("</s>", "").strip()
+        res.append((text, score))
+    return res
 
 
 def split_target(t):
