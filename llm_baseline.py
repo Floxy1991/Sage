@@ -22,6 +22,7 @@ import math
 import os
 import re
 
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # before torch is imported (Apple Silicon)
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 

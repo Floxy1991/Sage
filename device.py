@@ -10,6 +10,8 @@ Override from the shell with SAGE_DEVICE=cpu|cuda|mps|dml.
 import contextlib
 import os
 
+# MPS reads this when torch is imported, so entry points also set it before their own torch import.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import torch
 
 
@@ -25,9 +27,6 @@ def pick(name="auto"):
     if name == "dml":
         import torch_directml  # pip install torch-directml (Windows only)
         return torch_directml.device()
-    if name == "mps":
-        # Let ops MPS lacks run on CPU instead of crashing.
-        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     if name == "cpu":
         # Use the physical cores; PyTorch's default can oversubscribe on laptops.
         n = os.cpu_count() or 4

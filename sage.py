@@ -27,6 +27,7 @@ import math
 import os
 import random
 
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # must be set before torch is imported (Apple Silicon)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -78,6 +79,8 @@ def batches(xs, n):
 
 # ------------------------------------------------- stage 1: self-retrieval LM
 def selfret_pairs(train, use_strategy, neg_ratio=1.0):
+    if len({e["dialog_idx"] for e in train}) < 2:
+        raise ValueError("the training subset holds one dialogue; negatives need at least two (raise --train-limit)")
     pairs = [("context: " + ctx_text(e), target_text(e["strategy"], e["response"], use_strategy)) for e in train]
     # Self-evaluation task: real next response -> yes, response from another dialogue -> no.
     # ASSUMPTION: this is how P_reject (Sec. 3.4) is learned; the paper does not say.
@@ -335,6 +338,8 @@ def cmd_train_fusion(a):
     cands = []
     for i, e in enumerate(train):
         mask = torch.tensor([s == e["strategy"] for s in strat]) & (dlg != e["dialog_idx"])
+        if not mask.any():  # small subsets: no other dialogue uses this strategy, so drop the strategy constraint
+            mask = dlg != e["dialog_idx"]
         cands.append(train[resid_topk(qcodes[i], q[i], codes, emb, mask, 1)[0]]["response"])
     # The self-retrieval LM is only needed for the candidates above: free its GPU memory before training.
     sr.cpu()
@@ -359,13 +364,15 @@ def cmd_train_fusion(a):
         tot = 0
         for n, b in enumerate(batches(idx, a.bs)):
             opt.zero_grad()
+            # T5's loss is a mean over target tokens, so weight each micro-batch by its share of the batch's tokens.
+            n_tok = sum(min(len(tok(train[i]["response"]).input_ids), 128) for i in b)
             for mb in batches(b, mbs):
                 exs = [train[i] for i in mb]
                 ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in mb], [e["strategy"] for e in exs], kmap)
                 lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
                 lab[lab == tok.pad_token_id] = -100
                 with devmod.autocast(DEV, AMP):
-                    loss = model(ctx, com, hel, lab).loss * len(mb) / len(b)
+                    loss = model(ctx, com, hel, lab).loss * (lab != -100).sum().item() / n_tok
                 loss.backward()
                 tot += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
