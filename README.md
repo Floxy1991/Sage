@@ -14,6 +14,10 @@ Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support 
 
 See [LOCAL.md](LOCAL.md). The scripts now pick CUDA, Apple MPS or the CPU automatically (`--device`), take `--train-limit` for small runs, and `python run_local.py check | bm25 | sage-mini | llm-mini | compare` runs each piece on its own. Full-size training stays on Colab.
 
+## Windows PC with an NVIDIA GPU: full 100-epoch run
+
+See [SCHOOL_GPU.md](SCHOOL_GPU.md). `run_paper_gpu.bat` runs every SAGE stage with the paper's settings, unattended and resumable.
+
 ## Setup (on a machine with an NVIDIA GPU, 16GB RAM)
 
 ```bash
