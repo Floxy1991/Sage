@@ -24,6 +24,7 @@ trained with --no-strategy-token), --no-constraint, --no-resid, --no-comet,
 import argparse
 import json
 import math
+import time
 import os
 import random
 
@@ -148,6 +149,8 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
     for ep in range(start, epochs):
         random.shuffle(pairs)
         tot = 0.0
+        t0 = last = time.time()
+        n_b = math.ceil(len(pairs) / bs)
         for i, b in enumerate(batches(pairs, bs)):
             enc = tok([x for x, _ in b], max_length=256, truncation=True, padding=True, return_tensors="pt").to(DEV)
             lab = tok([y for _, y in b], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
@@ -159,6 +162,10 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 opt.step(), sch.step(), opt.zero_grad()
             tot += loss.item() * grad_accum
+            if time.time() - last > 120:  # a sign of life every 2 minutes; an epoch can take 20+ minutes
+                last = time.time()
+                print(f"  epoch {ep + 1}/{epochs}: batch {i + 1}/{n_b}, {(last - t0) / 60:.0f} min, "
+                      f"loss {tot / (i + 1):.4f}", flush=True)
         print(f"epoch {ep + 1}/{epochs} loss {tot / (i + 1):.4f}", flush=True)
         model.save_pretrained(out)
         tok.save_pretrained(out)
@@ -415,6 +422,8 @@ def cmd_train_fusion(a):
     for ep in range(start, a.epochs):
         random.shuffle(idx)
         tot = 0
+        t0 = last = time.time()
+        n_b = math.ceil(len(idx) / a.bs)
         for n, b in enumerate(batches(idx, a.bs)):
             opt.zero_grad()
             # T5's loss is a mean over target tokens, so weight each micro-batch by its share of the batch's tokens.
@@ -430,6 +439,10 @@ def cmd_train_fusion(a):
                 tot += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(), sch.step()
+            if time.time() - last > 120:  # a sign of life every 2 minutes
+                last = time.time()
+                print(f"  fusion epoch {ep + 1}/{a.epochs}: batch {n + 1}/{n_b}, {(last - t0) / 60:.0f} min, "
+                      f"loss {tot / (n + 1):.4f}", flush=True)
         print(f"fusion epoch {ep + 1} loss {tot / (n + 1):.4f} lambda {F.softmax(model.lam, 0).tolist()}", flush=True)
         # Save after every epoch so a Colab disconnect keeps the last finished epoch.
         os.makedirs(a.out, exist_ok=True)
