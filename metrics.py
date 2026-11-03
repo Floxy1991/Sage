@@ -102,7 +102,7 @@ def retrieval_metrics(ranked_lists, golds, ks=(1, 5, 10)):
 
 
 def evaluate_file(path):
-    rows = [json.loads(l) for l in open(path)]
+    rows = [json.loads(l) for l in open(path, encoding="utf-8")]
     res = {"n": len(rows)}
     if all("prediction" in r for r in rows):
         res.update(generation_metrics([r["response"] for r in rows], [r["prediction"] for r in rows]))

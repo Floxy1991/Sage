@@ -1,0 +1,12 @@
+# Laptop / no-NVIDIA install. On Windows and macOS, plain `pip install torch` is the CPU (or Apple MPS) build.
+torch>=2.2
+transformers>=4.56  # tested with 5.22
+sentencepiece
+protobuf
+accelerate
+nltk
+scikit-learn
+rank-bm25
+psutil
+# Optional, AMD/Intel GPU on Windows (inference only, experimental): pip install torch-directml
+pandas

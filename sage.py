@@ -27,6 +27,7 @@ import math
 import os
 import random
 
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # must be set before torch is imported (Apple Silicon)
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -34,18 +35,21 @@ from transformers import (AutoTokenizer, T5ForConditionalGeneration,
                           get_cosine_schedule_with_warmup, get_linear_schedule_with_warmup)
 from transformers.modeling_outputs import BaseModelOutput
 
+import device as devmod
 from prepare_data import STRATEGIES
 
-DEV = "cuda" if torch.cuda.is_available() else "cpu"
+# Set in main() from --device (auto picks CUDA, then Apple MPS, then CPU; see device.py).
+DEV = devmod.pick("auto")
 # bf16 autocast only where the GPU supports it (not on Colab T4); T5 is unstable in fp16, so fall back to fp32.
-AMP = DEV == "cuda" and torch.cuda.is_bf16_supported()
+AMP = devmod.bf16_ok(DEV)
 SPECIAL = ["[STRAT]", "[RESP]", "[CAND]", "[CTX]"]
 COMET_RELS = ["xIntent", "xNeed", "xEffect", "xWant"]
 
 
 # ---------------------------------------------------------------- utilities
-def load(path):
-    return [json.loads(l) for l in open(path)]
+def load(path, limit=0):
+    rows = [json.loads(l) for l in open(path, encoding="utf-8")]
+    return rows[:limit] if limit else rows
 
 
 def seed_all(s):
@@ -75,6 +79,8 @@ def batches(xs, n):
 
 # ------------------------------------------------- stage 1: self-retrieval LM
 def selfret_pairs(train, use_strategy, neg_ratio=1.0):
+    if len({e["dialog_idx"] for e in train}) < 2:
+        raise ValueError("the training subset holds one dialogue; negatives need at least two (raise --train-limit)")
     pairs = [("context: " + ctx_text(e), target_text(e["strategy"], e["response"], use_strategy)) for e in train]
     # Self-evaluation task: real next response -> yes, response from another dialogue -> no.
     # ASSUMPTION: this is how P_reject (Sec. 3.4) is learned; the paper does not say.
@@ -89,21 +95,64 @@ def selfret_pairs(train, use_strategy, neg_ratio=1.0):
     return pairs
 
 
+def resume_state(out, epochs, model, opt, sch, weights=None):
+    """Epochs already done in `out` (0 for a fresh run). Restores model, optimizer, scheduler and RNG state."""
+    st, op = os.path.join(out, "train_state.json"), os.path.join(out, "optim.pt")
+    if not (os.path.exists(st) and os.path.exists(op)):
+        return 0
+    state = json.load(open(st, encoding="utf-8"))
+    done = state.get("epochs_done", 0)
+    if state.get("epochs") != epochs or not 0 < done < epochs:
+        return 0
+    if weights:  # plain state dict (fusion model)
+        model.load_state_dict(torch.load(weights, map_location="cpu"))
+    else:
+        model.load_state_dict(T5ForConditionalGeneration.from_pretrained(out).state_dict())
+    ck = torch.load(op, map_location="cpu", weights_only=False)
+    opt.load_state_dict(ck["opt"])
+    sch.load_state_dict(ck["sch"])
+    random.setstate(ck["py_rng"])
+    torch.set_rng_state(ck["torch_rng"])
+    print(f"resuming {out} after epoch {done}/{epochs}", flush=True)
+    return done
+
+
+def save_state(out, done, epochs, opt, sch):
+    """Record progress; keep optimizer state only while the run is unfinished (it is ~2x the model size)."""
+    json.dump({"epochs_done": done, "epochs": epochs}, open(os.path.join(out, "train_state.json"), "w", encoding="utf-8"))
+    op = os.path.join(out, "optim.pt")
+    if done < epochs:
+        torch.save({"opt": opt.state_dict(), "sch": sch.state_dict(), "py_rng": random.getstate(),
+                    "torch_rng": torch.get_rng_state()}, op + ".tmp")
+        os.replace(op + ".tmp", op)  # never leave a half-written file if the runtime dies mid-save
+    elif os.path.exists(op):
+        os.remove(op)
+
+
+def train_finished(out, epochs):
+    st = os.path.join(out, "train_state.json")
+    return os.path.exists(st) and json.load(open(st, encoding="utf-8")).get("epochs_done", 0) >= epochs \
+        and json.load(open(st, encoding="utf-8")).get("epochs") == epochs
+
+
 def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear", grad_accum=1, fp16=True):
+    """Train with AdamW; save model, optimizer and scheduler after every epoch, and continue from the last
+    finished epoch if `out` holds an unfinished run with the same number of epochs (e.g. after a Colab disconnect)."""
     model.to(DEV).train()
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    steps = epochs * math.ceil(len(pairs) / bs) // grad_accum
+    steps = max(1, epochs * math.ceil(len(pairs) / bs) // grad_accum)
     mk = get_cosine_schedule_with_warmup if sched == "cosine" else get_linear_schedule_with_warmup
     sch = mk(opt, int(warmup * steps) if warmup < 1 else int(warmup), steps)
     use_amp = fp16 and AMP
-    for ep in range(epochs):
+    start = resume_state(out, epochs, model, opt, sch)
+    for ep in range(start, epochs):
         random.shuffle(pairs)
         tot = 0.0
         for i, b in enumerate(batches(pairs, bs)):
             enc = tok([x for x, _ in b], max_length=256, truncation=True, padding=True, return_tensors="pt").to(DEV)
             lab = tok([y for _, y in b], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
             lab[lab == tok.pad_token_id] = -100
-            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=use_amp):
+            with devmod.autocast(DEV, use_amp):
                 loss = model(**enc, labels=lab).loss / grad_accum
             loss.backward()
             if (i + 1) % grad_accum == 0:
@@ -113,18 +162,23 @@ def train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched="linear"
         print(f"epoch {ep + 1}/{epochs} loss {tot / (i + 1):.4f}", flush=True)
         model.save_pretrained(out)
         tok.save_pretrained(out)
+        save_state(out, ep + 1, epochs, opt, sch)
 
 
 def cmd_train_selfret(a):
     seed_all(a.seed)
+    if train_finished(a.out, a.epochs):
+        print(f"{a.out}: all {a.epochs} epochs already trained", flush=True)
+        return
     tok = get_tok(a.base)
     model = T5ForConditionalGeneration.from_pretrained(a.base)
     model.resize_token_embeddings(len(tok))
-    train = load(f"data/{a.split}/train.jsonl")
+    train = load(f"data/{a.split}/train.jsonl", a.train_limit)
     pairs = selfret_pairs(train, not a.no_strategy_token)
     # Table B.11 "SFT" column: lr 2e-5, bs 16, 3 epochs, warmup 0.03, cosine. ASSUMPTION: T5 needs a
     # higher lr than an LLM; default 1e-4 (the "Retrieval" column), override with --lr.
-    train_seq2seq(model, tok, pairs, a.out, a.epochs, a.lr, a.bs, 0.03, "cosine")
+    train_seq2seq(model, tok, pairs, a.out, a.epochs, a.lr, a.bs, getattr(a, "warmup", 0.03),
+                  getattr(a, "sched", "cosine"), getattr(a, "grad_accum", 1))
 
 
 # ------------------------------------------------------ stage 2: RQ-VAE ResIDs
@@ -188,7 +242,7 @@ def cmd_build_index(a):
     seed_all(a.seed)
     tok = get_tok(a.model)
     model = T5ForConditionalGeneration.from_pretrained(a.model)
-    train = load(f"data/{a.split}/train.jsonl")
+    train = load(f"data/{a.split}/train.jsonl", a.train_limit)
     R = embed(model, tok, [e["response"] for e in train])
     rq = RQVAE(d_in=R.shape[1]).to(DEV)
     opt = torch.optim.AdamW(rq.parameters(), lr=1e-4, weight_decay=0.01)
@@ -227,7 +281,7 @@ def cmd_knowledge(a):
     from transformers import AutoModelForSeq2SeqLM
     sent_tok = get_tok(a.model)
     sent = T5ForConditionalGeneration.from_pretrained(a.model)
-    heal = [json.loads(l)["text"] for l in open(a.heal)] if a.heal else []
+    heal = [json.loads(l)["text"] for l in open(a.heal, encoding="utf-8")] if a.heal else []
     heal_emb = embed(sent, sent_tok, heal) if heal else None
     if a.comet:
         ctok = AutoTokenizer.from_pretrained(a.comet)
@@ -253,7 +307,7 @@ def cmd_knowledge(a):
             for e, c, h in zip(b, comet, heal_k):
                 out.append({"id": e["id"], "comet": c, "heal": h})
         os.makedirs(a.out, exist_ok=True)
-        with open(os.path.join(a.out, f"{split}.jsonl"), "w") as f:
+        with open(os.path.join(a.out, f"{split}.jsonl"), "w", encoding="utf-8") as f:
             for r in out:
                 f.write(json.dumps(r) + "\n")
         print(split, len(out), flush=True)
@@ -302,7 +356,7 @@ def fusion_inputs(tok, exs, cands, strategies, kmap, use_comet=True, use_heal=Tr
 
 
 def load_index(path):
-    ix = torch.load(os.path.join(path, "index.pt"))
+    ix = torch.load(os.path.join(path, "index.pt"), map_location="cpu")
     rq = RQVAE(d_in=ix["d_in"]).to(DEV)
     rq.load_state_dict(ix["rq"])
     return rq.eval(), ix["codes"], ix["emb"]
@@ -318,10 +372,14 @@ def resid_topk(qcode, qemb, codes, emb, mask, r, use_resid=True):
 
 def cmd_train_fusion(a):
     seed_all(a.seed)
+    if train_finished(a.out, a.epochs) and os.path.exists(os.path.join(a.out, "fusion.pt")):
+        print(f"{a.out}: all {a.epochs} epochs already trained", flush=True)
+        return
     tok = get_tok(a.selfret)
     sr = T5ForConditionalGeneration.from_pretrained(a.selfret)
-    train = load(f"data/{a.split}/train.jsonl")
     rq, codes, emb = load_index(a.index)
+    # The index covers the first len(codes) training responses (build-index --train-limit).
+    train = load(f"data/{a.split}/train.jsonl", len(codes))
     # Candidate for training = best ResID neighbour with the gold strategy from another dialogue.
     q = embed(sr, tok, ["context: " + ctx_text(e) for e in train])
     qcodes = rq.codes(q.to(DEV)).cpu()
@@ -330,34 +388,55 @@ def cmd_train_fusion(a):
     cands = []
     for i, e in enumerate(train):
         mask = torch.tensor([s == e["strategy"] for s in strat]) & (dlg != e["dialog_idx"])
+        if not mask.any():  # small subsets: no other dialogue uses this strategy, so drop the strategy constraint
+            mask = dlg != e["dialog_idx"]
         cands.append(train[resid_topk(qcodes[i], q[i], codes, emb, mask, 1)[0]]["response"])
+    # The self-retrieval LM is only needed for the candidates above: free its GPU memory before training.
+    sr.cpu()
+    del sr, q
+    devmod.free_memory()
     kmap = knowledge_map(a.knowledge, "train")
     t5 = T5ForConditionalGeneration.from_pretrained(a.base)
     t5.resize_token_embeddings(len(tok))
+    if getattr(a, "grad_ckpt", True) and devmod.kind(DEV) == "cuda":
+        # Recompute activations in the backward pass: much less memory for ~30% more time.
+        t5.config.use_cache = False
+        t5.gradient_checkpointing_enable()
     model = FusionT5(t5).to(DEV).train()
+    # Effective batch a.bs, run as micro-batches of a.micro_bs (gradient accumulation) so t5-base fits a 16 GB T4.
+    mbs = min(getattr(a, "micro_bs", 0) or a.bs, a.bs)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     idx = list(range(len(train)))
-    steps = a.epochs * math.ceil(len(idx) / a.bs)
-    sch = get_linear_schedule_with_warmup(opt, 100, steps)
-    for ep in range(a.epochs):
+    steps = max(1, a.epochs * math.ceil(len(idx) / a.bs))
+    warm = getattr(a, "warmup", 100)
+    mk = get_cosine_schedule_with_warmup if getattr(a, "sched", "linear") == "cosine" else get_linear_schedule_with_warmup
+    sch = mk(opt, int(warm * steps) if warm < 1 else int(warm), steps)
+    start = resume_state(a.out, a.epochs, model, opt, sch, weights=os.path.join(a.out, "fusion.pt"))
+    for ep in range(start, a.epochs):
         random.shuffle(idx)
         tot = 0
         for n, b in enumerate(batches(idx, a.bs)):
-            exs = [train[i] for i in b]
-            ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in b], [e["strategy"] for e in exs], kmap)
-            lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
-            lab[lab == tok.pad_token_id] = -100
-            with torch.autocast(DEV, dtype=torch.bfloat16, enabled=AMP):
-                loss = model(ctx, com, hel, lab).loss
-            opt.zero_grad(), loss.backward()
+            opt.zero_grad()
+            # T5's loss is a mean over target tokens, so weight each micro-batch by its share of the batch's tokens.
+            n_tok = sum(min(len(tok(train[i]["response"]).input_ids), 128) for i in b)
+            for mb in batches(b, mbs):
+                exs = [train[i] for i in mb]
+                ctx, com, hel = fusion_inputs(tok, exs, [cands[i] for i in mb], [e["strategy"] for e in exs], kmap)
+                lab = tok([e["response"] for e in exs], max_length=128, truncation=True, padding=True, return_tensors="pt").input_ids.to(DEV)
+                lab[lab == tok.pad_token_id] = -100
+                with devmod.autocast(DEV, AMP):
+                    loss = model(ctx, com, hel, lab).loss * (lab != -100).sum().item() / n_tok
+                loss.backward()
+                tot += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(), sch.step()
-            tot += loss.item()
         print(f"fusion epoch {ep + 1} loss {tot / (n + 1):.4f} lambda {F.softmax(model.lam, 0).tolist()}", flush=True)
-    os.makedirs(a.out, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
-    tok.save_pretrained(a.out)
-    json.dump({"base": a.base}, open(os.path.join(a.out, "config.json"), "w"))
+        # Save after every epoch so a Colab disconnect keeps the last finished epoch.
+        os.makedirs(a.out, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(a.out, "fusion.pt"))
+        tok.save_pretrained(a.out)
+        json.dump({"base": a.base, "epochs_done": ep + 1}, open(os.path.join(a.out, "config.json"), "w", encoding="utf-8"))
+        save_state(a.out, ep + 1, a.epochs, opt, sch)
 
 
 # ------------------------------------------------------ stage 5: inference
@@ -403,9 +482,19 @@ def constrained_beam(model, tok, src, targets, beams):
     out = model.generate(**enc, num_beams=beams, num_return_sequences=min(beams, len(targets)),
                          prefix_allowed_tokens_fn=allowed, max_new_tokens=160, output_scores=True,
                          return_dict_in_generate=True, length_penalty=1.0, decoder_start_token_id=start)
-    texts = tok.batch_decode(out.sequences, skip_special_tokens=False)
-    clean = [t.replace("<pad>", "").replace("</s>", "").strip() for t in texts]
-    return list(zip(clean, out.sequences_scores.cpu().tolist()))
+    # Map each beam back to its candidate by token ids. Decoding the ids does not round-trip exactly
+    # (e.g. "Question [RESP]" decodes as "Question[RESP]"), so comparing strings would match nothing.
+    by_ids = {tuple(q): t for q, t in zip(seqs, targets)}
+    res = []
+    for ids, score in zip(out.sequences.tolist(), out.sequences_scores.cpu().tolist()):
+        ids = ids[1:]  # drop decoder start token
+        if tok.eos_token_id in ids:
+            ids = ids[:ids.index(tok.eos_token_id) + 1]
+        text = by_ids.get(tuple(ids))
+        if text is None:  # cannot happen under the trie constraint, but keep the decoded text if it does
+            text = tok.decode(ids, skip_special_tokens=False).replace("<pad>", "").replace("</s>", "").strip()
+        res.append((text, score))
+    return res
 
 
 def split_target(t):
@@ -433,12 +522,12 @@ class SageModel:
         self.tok = get_tok(a.selfret)
         self.sr = T5ForConditionalGeneration.from_pretrained(a.selfret).to(DEV).eval()
         self.rq, self.codes, self.emb = load_index(a.index)
-        self.train = load(f"data/{a.split}/train.jsonl")
+        self.train = load(f"data/{a.split}/train.jsonl", len(self.codes))
         self.strat_of = [e["strategy"] for e in self.train]
         self.kmap = knowledge_map(a.knowledge, a.eval_split)
         self.fusion = None
         if a.fusion and not a.retrieval_only:
-            cfg = json.load(open(os.path.join(a.fusion, "config.json")))
+            cfg = json.load(open(os.path.join(a.fusion, "config.json"), encoding="utf-8"))
             t5 = T5ForConditionalGeneration.from_pretrained(cfg["base"])
             t5.resize_token_embeddings(len(self.tok))
             self.fusion = FusionT5(t5)
@@ -487,8 +576,11 @@ class SageModel:
         pred = r_star
         if self.fusion is not None:
             ctx, com, hel = fusion_inputs(tok, [e], [r_star], [s_star], self.kmap, not a.no_comet, not a.no_heal)
+            # Table B.12: beam 4, repetition penalty 1.2, 3-gram blocking, min length 10, length penalty 1.0;
+            # with --sample also nucleus sampling (top-p 0.9, temperature 0.8) as the paper lists.
+            samp = dict(do_sample=True, top_p=0.9, temperature=0.8) if getattr(a, "sample", False) else {}
             gen = self.fusion.generate(ctx, com, hel, num_beams=4, max_new_tokens=128, min_new_tokens=10,
-                                       repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0)
+                                       repetition_penalty=1.2, no_repeat_ngram_size=3, length_penalty=1.0, **samp)
             pred = tok.decode(gen[0], skip_special_tokens=True).strip()
         return {"pred_strategy": top_s[0], "chosen_strategy": s_star, "candidate": r_star, "prediction": pred}
 
@@ -501,6 +593,32 @@ class SageModel:
         return self.fusion(ctx, com, hel, lab).loss.item() * lab.shape[1], lab.shape[1]
 
 
+def resume_rows(out, path, a, name="predictions"):
+    """Ids already written to `path` by a run with the same settings; otherwise start the file afresh."""
+    keep = {k: v for k, v in vars(a).items() if k not in ("out", "device")}
+    # Also stamp when the checkpoints were written, so rows from older checkpoints are never reused.
+    for k in ("selfret", "index", "fusion"):
+        d = getattr(a, k, None)
+        if d and os.path.isdir(d):
+            keep[k + "_mtime"] = max(os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d))
+    stamp = os.path.join(out, f"{name}_args.json")
+    same = os.path.exists(stamp) and json.load(open(stamp, encoding="utf-8")) == json.loads(json.dumps(keep))
+    if not (same and os.path.exists(path)):
+        open(path, "w", encoding="utf-8").close()
+        json.dump(keep, open(stamp, "w", encoding="utf-8"))
+        return set()
+    ids = set()
+    for line in open(path, encoding="utf-8"):
+        try:
+            ids.add(json.loads(line)["id"])
+        except (json.JSONDecodeError, KeyError):  # last line cut off by a disconnect
+            pass
+    # rewrite without a broken last line
+    rows = [l for l in open(path, encoding="utf-8") if l.strip().endswith("}")]
+    open(path, "w", encoding="utf-8").writelines(rows)
+    return ids
+
+
 def cmd_infer(a):
     seed_all(a.seed)
     model = SageModel(a)
@@ -508,24 +626,31 @@ def cmd_infer(a):
     if a.limit:
         test = test[:a.limit]
     os.makedirs(a.out, exist_ok=True)
-    f = open(os.path.join(a.out, "predictions.jsonl"), "w")
-    nll_sum = ntok = 0
-    for i, e in enumerate(test):
+    pred = os.path.join(a.out, "predictions.jsonl")
+    done = resume_rows(a.out, pred, a)  # continue an interrupted run with the same settings
+    f = open(pred, "a", encoding="utf-8")
+    todo = [e for e in test if e["id"] not in done]
+    if done:
+        print(f"resuming: {len(done)} examples already done, {len(todo)} to go", flush=True)
+    for i, e in enumerate(todo):
+        random.seed(a.seed * 1000003 + test.index(e))  # same result whether or not the run was resumed
         out = model.respond(e)
+        row = {"id": e["id"], "response": e["response"], "strategy": e["strategy"], **out}
         if model.fusion is not None:
-            nll, n = model.gold_nll(e, out["candidate"])
-            nll_sum, ntok = nll_sum + nll, ntok + n
-        f.write(json.dumps({"id": e["id"], "response": e["response"], "strategy": e["strategy"], **out}) + "\n")
-        if (i + 1) % 50 == 0:
+            row["nll"], row["ntok"] = model.gold_nll(e, out["candidate"])
+        f.write(json.dumps(row) + "\n")
+        if (i + 1) % 20 == 0:
             f.flush()
-            print(f"{i + 1}/{len(test)}", flush=True)
+            print(f"{len(done) + i + 1}/{len(test)}", flush=True)
     f.close()
     from metrics import evaluate_file
-    res = evaluate_file(os.path.join(a.out, "predictions.jsonl"))
+    res = evaluate_file(pred)
+    rows = [json.loads(l) for l in open(pred, encoding="utf-8")]
+    ntok = sum(r.get("ntok", 0) for r in rows)
     if ntok:
-        res["PPL"] = math.exp(nll_sum / ntok)
+        res["PPL"] = math.exp(sum(r.get("nll", 0) for r in rows) / ntok)
     res["args"] = vars(a)
-    json.dump(res, open(os.path.join(a.out, "metrics.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(a.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps({k: v for k, v in res.items() if k != "args"}, indent=2))
 
 
@@ -542,9 +667,15 @@ def cmd_eval_retrieval(a):
         test = test[:a.limit]
     pemb = embed(sr, tok, [e["response"] for e in test])
     pcodes = rq.codes(pemb.to(DEV)).cpu()
-    rows = []
+    os.makedirs(a.out, exist_ok=True)
+    rows_path = os.path.join(a.out, "retrieval_rows.jsonl")
+    done = resume_rows(a.out, rows_path, a, name="retrieval")
+    rf = open(rows_path, "a", encoding="utf-8")
     for i, e in enumerate(test):
-        pool = random.sample([j for j in range(len(test)) if j != i], min(a.pool_size - 1, len(test) - 1)) + [i]
+        if e["id"] in done:
+            continue
+        rng = random.Random(a.seed * 1000003 + i)  # each example's pool is fixed, so resuming gives the same result
+        pool = rng.sample([j for j in range(len(test)) if j != i], min(a.pool_size - 1, len(test) - 1)) + [i]
         src = "context: " + ctx_text(e)
         q = embed(sr, tok, [src])[0]
         qcode = rq.codes(q.unsqueeze(0).to(DEV))[0].cpu()
@@ -554,12 +685,17 @@ def cmd_eval_retrieval(a):
         ranked = constrained_beam(sr, tok, src, list(targets), min(10, len(targets)))
         ids = [targets.get(t, -1) for t, _ in ranked]
         ids = [j for j in ids if j >= 0]
-        rows.append({"id": e["id"], "ranked_ids": ids, "gold_id": i, "num_prev_turns": e["num_prev_turns"]})
+        rf.write(json.dumps({"id": e["id"], "ranked_ids": ids, "gold_id": i, "num_prev_turns": e["num_prev_turns"]}) + "\n")
+        if (i + 1) % 20 == 0:
+            rf.flush()
+            print(f"retrieval {i + 1}/{len(test)}", flush=True)
+    rf.close()
+    rows = [json.loads(l) for l in open(rows_path, encoding="utf-8")]
     from metrics import retrieval_metrics
     res = retrieval_metrics([r["ranked_ids"] for r in rows], [r["gold_id"] for r in rows])
     res["pool_size"] = a.pool_size
     os.makedirs(a.out, exist_ok=True)
-    json.dump(res, open(os.path.join(a.out, "retrieval.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(a.out, "retrieval.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(res, indent=2))
 
 
@@ -569,6 +705,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--split", default="paper")
     common.add_argument("--seed", type=int, default=42)
+    common.add_argument("--device", default="auto", help="auto | cpu | cuda | mps | dml (see device.py)")
 
     p = sub.add_parser("train-selfret", parents=[common])
     p.add_argument("--base", default="t5-base")
@@ -577,11 +714,16 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--bs", type=int, default=16)
     p.add_argument("--no-strategy-token", action="store_true")
+    p.add_argument("--grad-accum", type=int, default=1, help="effective batch = --bs x --grad-accum")
+    p.add_argument("--warmup", type=float, default=0.03, help="warmup: fraction of steps if < 1, else steps")
+    p.add_argument("--sched", choices=["cosine", "linear"], default="cosine")
+    p.add_argument("--train-limit", type=int, default=0, help="train on the first N examples only (laptop runs)")
 
     p = sub.add_parser("build-index", parents=[common])
     p.add_argument("--model", default="ckpt/selfret")
     p.add_argument("--out", default="ckpt/index")
     p.add_argument("--epochs", type=int, default=50)
+    p.add_argument("--train-limit", type=int, default=0, help="index the first N training responses only")
 
     p = sub.add_parser("knowledge", parents=[common])
     p.add_argument("--model", default="ckpt/selfret")
@@ -598,7 +740,11 @@ def main():
     p.add_argument("--out", default="ckpt/fusion")
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--bs", type=int, default=16)
+    p.add_argument("--bs", type=int, default=16, help="effective batch size")
+    p.add_argument("--micro-bs", type=int, default=4, help="examples per forward pass; lower it on out-of-memory")
+    p.add_argument("--no-grad-ckpt", dest="grad_ckpt", action="store_false", help="turn off gradient checkpointing (only used on CUDA)")
+    p.add_argument("--warmup", type=float, default=100, help="warmup: fraction of steps if < 1, else steps")
+    p.add_argument("--sched", choices=["cosine", "linear"], default="linear")
 
     p = sub.add_parser("infer", parents=[common])
     p.add_argument("--selfret", default="ckpt/selfret")
@@ -616,6 +762,7 @@ def main():
     p.add_argument("--delta", type=float, default=1.0)
     p.add_argument("--alpha", type=float, default=0.5)
     p.add_argument("--beta", type=float, default=0.5)
+    p.add_argument("--sample", action="store_true", help="paper decoding: nucleus sampling (top-p 0.9, T 0.8) in beam search")
     for flag in ("no-constraint", "no-resid", "no-comet", "no-heal", "retrieval-only"):
         p.add_argument(f"--{flag}", action="store_true")
 
@@ -628,6 +775,10 @@ def main():
     p.add_argument("--limit", type=int, default=0)
 
     a = ap.parse_args()
+    global DEV, AMP
+    DEV = devmod.pick(a.device)
+    AMP = devmod.bf16_ok(DEV)
+    print("device:", devmod.describe(DEV), flush=True)
     {"train-selfret": cmd_train_selfret, "build-index": cmd_build_index, "knowledge": cmd_knowledge,
      "train-fusion": cmd_train_fusion, "infer": cmd_infer, "eval-retrieval": cmd_eval_retrieval}[a.cmd](a)
 

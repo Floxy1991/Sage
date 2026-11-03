@@ -20,7 +20,7 @@ from metrics import generation_metrics, retrieval_metrics, strategy_metrics, tok
 
 
 def load(path):
-    return [json.loads(l) for l in open(path)]
+    return [json.loads(l) for l in open(path, encoding="utf-8")]
 
 
 def query_text(ex, turns=3):
@@ -63,7 +63,7 @@ def main():
         best = train[max(range(len(train)), key=lambda i: scores[i])]
         preds.append({"id": e["id"], "response": e["response"], "strategy": e["strategy"],
                       "prediction": best["response"], "pred_strategy": best["strategy"]})
-    with open(os.path.join(args.out, "predictions.jsonl"), "w") as f:
+    with open(os.path.join(args.out, "predictions.jsonl"), "w", encoding="utf-8") as f:
         for p in preds:
             f.write(json.dumps(p) + "\n")
 
@@ -71,7 +71,7 @@ def main():
     strat = strategy_metrics([p["strategy"] for p in preds], [p["pred_strategy"] for p in preds])
     res = {"split": args.split, "n_test": len(test), "retrieval": ret, "retrieval_R@10_by_turns": by_len,
            "generation": gen, "strategy": strat}
-    json.dump(res, open(os.path.join(args.out, "metrics.json"), "w"), indent=2)
+    json.dump(res, open(os.path.join(args.out, "metrics.json"), "w", encoding="utf-8"), indent=2)
     print(json.dumps(res, indent=2))
 
 
