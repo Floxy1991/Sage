@@ -6,6 +6,10 @@ Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support 
 
 [`SAGE_reproduction.ipynb`](SAGE_reproduction.ipynb) has the whole reproduction inline (data, metrics, BM25, LLM baselines, SAGE, ablations, comparison with the paper) and runs top to bottom in Jupyter or Colab: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_reproduction.ipynb)
 
+## Full 100-epoch run on Colab
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_100epochs.ipynb) `SAGE_100epochs.ipynb` is the same notebook with the paper's full 100 self-retrieval epochs (the main notebook defaults to a compute-limited 3). It saves to its own Drive folder, `sage_work_100`, and resumes from the last finished epoch after every disconnect. On a free T4 this stage alone is about 90 GPU hours. Regenerate it with `python tools/make_100epoch_notebook.py` after editing the main notebook.
+
 ## Quick start on Google Colab (script version)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Floxy1991/Sage/blob/main/SAGE_colab.ipynb) Runs every step on a free T4 GPU and saves outputs to Google Drive. `python compare.py` prints our numbers next to the paper's.
