@@ -27,6 +27,13 @@ SETUP = {"cell_type": "code", "metadata": {}, "execution_count": None, "outputs"
     "os.environ[\"SAGE_DRIVE_DIR\"] = \"sage_work_100\"\n"
     "print(\"100-epoch run: saving to MyDrive/sage_work_100\")")}
 
+# The Resume cell (outside Colab) reads the notebook from disk and falls back to GitHub: point it at this file, so a
+# JupyterLab server (e.g. the DGX) re-runs this notebook's setup cells, including the 100-epoch one.
+for c in nb["cells"]:
+    if c["cell_type"] == "code" and c["source"].startswith("def _resume():"):
+        c["source"] = c["source"].replace("SAGE_reproduction.ipynb", "SAGE_100epochs.ipynb")
+        assert "SAGE_100epochs.ipynb" in c["source"]
+
 first_setup = next(i for i, c in enumerate(nb["cells"]) if c["cell_type"] == "code" and c["source"].startswith("# [setup]"))
 nb["cells"].insert(first_setup, SETUP)
 nb["cells"].insert(1, NOTE)
