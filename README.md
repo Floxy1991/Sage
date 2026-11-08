@@ -18,6 +18,10 @@ Reproduces *SAGE: Self-retrieval-augmented generative LLM for emotional support 
 
 See [LOCAL.md](LOCAL.md). The scripts now pick CUDA, Apple MPS or the CPU automatically (`--device`), take `--train-limit` for small runs, and `python run_local.py check | bm25 | sage-mini | llm-mini | compare` runs each piece on its own. Full-size training stays on Colab.
 
+## Linux GPU server (e.g. a DGX): full 100-epoch run
+
+See [DGX.md](DGX.md). `nohup bash run_paper_gpu.sh > train_log.txt 2>&1 &` runs every SAGE stage with the paper's settings, survives closing the browser, and resumes after a restart.
+
 ## Windows PC with an NVIDIA GPU: full 100-epoch run
 
 See [SCHOOL_GPU.md](SCHOOL_GPU.md). `run_paper_gpu.bat` runs every SAGE stage with the paper's settings, unattended and resumable.
