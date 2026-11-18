@@ -1,0 +1,267 @@
+<title>SAGE Retrieval Study Sheet</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one study column; each step = heading, quoted code, numbered line-by-line notes. Same tokens as the SAGE Code Guide. */
+:root {
+  --bg: #f6f8fa; --surface: #ffffff; --fg: #1b2430; --muted: #5a6676; --line: #dde3ea;
+  --accent: #1f6f8b; --accent-soft: #e2f0f5; --code-bg: #eef2f6;
+  --warn: #8a5a00; --warn-soft: #fff4dc; --tip: #22693f; --tip-soft: #e3f4ea;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161c; --surface: #18202a; --fg: #e3e9ef; --muted: #9aa7b6; --line: #2a3542;
+    --accent: #6cc0dc; --accent-soft: #17323d; --code-bg: #1f2935;
+    --warn: #f0c060; --warn-soft: #33290f; --tip: #7fd6a0; --tip-soft: #15301f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e3e9ef; --muted: #9aa7b6; --line: #2a3542;
+  --accent: #6cc0dc; --accent-soft: #17323d; --code-bg: #1f2935;
+  --warn: #f0c060; --warn-soft: #33290f; --tip: #7fd6a0; --tip-soft: #15301f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 16.5px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 800px; margin: 0 auto; padding-block: 40px 80px; min-width: 0; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 750; margin: 0 0 12px; }
+h2 { font-size: 26px; font-weight: 750; margin: 56px 0 10px; padding-top: 12px; border-top: 2px solid var(--line); }
+h3 { font-size: 19px; font-weight: 600; margin: 28px 0 8px; }
+.eyebrow { font-family: var(--f-mono); font-size: 13px; color: var(--accent); margin: 0 0 6px; }
+.lede { font-size: 19px; color: var(--muted); margin: 0 0 20px; }
+p { margin: 0 0 14px; }
+a { color: var(--accent); }
+code, pre { font-family: var(--f-mono); }
+:not(pre) > code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: .86em; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.55; margin: 0 0 14px; font-size: 13.5px; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); text-align: center; }
+.where { font-family: var(--f-mono); font-size: 13px; color: var(--muted); margin: -4px 0 8px; }
+ol.lines { counter-reset: n; list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+ol.lines > li { counter-increment: n; position: relative; padding-left: 34px; }
+ol.lines > li::before { content: counter(n); position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-family: var(--f-mono); font-weight: 600; font-size: 13px; display: grid; place-items: center; }
+.note { border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; font-size: 15.5px; }
+.note.tip { background: var(--tip-soft); }
+.note.tip strong:first-child { color: var(--tip); }
+.note.warn { background: var(--warn-soft); }
+.note.warn strong:first-child { color: var(--warn); }
+.table-wrap { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-display); font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 10px; }
+summary { cursor: pointer; font-weight: 700; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+details p { margin: 10px 0 4px; }
+</style>
+
+<main>
+<p class="eyebrow">sage.py · the retrieval (RAG) path</p>
+<h1>How SAGE retrieves a reply</h1>
+<p class="lede">A study sheet for the retrieval part of SAGE: the exact code that runs each step, explained line by line, and how it differs from ordinary RAG.</p>
+
+<p>All code below is quoted from <code>sage.py</code> (line numbers as of 4 Nov 2026). The same functions are in the "Shared helpers" cell (section 3) of <code>SAGE_reproduction.ipynb</code>. For the rest of the code, see the SAGE Code Guide.</p>
+
+<h2>First: SAGE is not ordinary RAG</h2>
+<p><strong>Ordinary RAG</strong> (Retrieval-Augmented Generation) has two separate systems. A retriever (BM25, or DPR, which compares embeddings) finds some documents, pastes them into the prompt, and an LLM writes the answer. The paper's "GPT-4o (RAG)" and "DPR" baselines in Table 4 work like this.</p>
+<p><strong>SAGE uses "generative retrieval" (also called self-retrieval).</strong> The same T5 model that writes replies also does the retrieving: it is only allowed to "write out" a reply that already exists in the training set, and its own probabilities decide which one. Then a second model rewrites the chosen reply.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Ordinary RAG</th><th>SAGE</th></tr></thead>
+<tbody>
+<tr><td>Who retrieves</td><td>A separate retriever (BM25, DPR)</td><td>The generator itself, by constrained decoding</td></tr>
+<tr><td>Index</td><td>Text or embedding vectors</td><td>A 4-number code per reply (ResID) from an RQ-VAE</td></tr>
+<tr><td>What is retrieved</td><td>Documents / facts</td><td>Past supporter replies, filtered by strategy</td></tr>
+<tr><td>Ranking</td><td>Similarity score</td><td>Code distance, then the model's own beam score, then psychological re-ranking (Eq. 5)</td></tr>
+<tr><td>How it is used</td><td>Pasted into the LLM prompt</td><td>Fed into a fusion T5 as <code>[CAND]</code>, which rewrites it (Eq. 6)</td></tr>
+</tbody></table></div>
+
+<h2>The path at a glance</h2>
+<pre class="mermaid">
+flowchart TD
+  subgraph OFF["Done once, before chatting (build-index)"]
+    A1["Every training reply"] --> A2["embed()<br/>reply to 768 numbers"]
+    A2 --> A3["RQVAE.codes()<br/>768 numbers to 4 codes"]
+    A3 --> A4[("index.pt<br/>codes + vectors")]
+  end
+  subgraph ON["Every time the seeker speaks (SageModel.respond)"]
+    B1["Conversation"] --> B2["embed() + RQVAE.codes()<br/>query code"]
+    B1 --> B3["strategy_logprobs()<br/>top 3 strategies"]
+    B2 --> B4["resid_topk()<br/>20 nearest replies per strategy"]
+    B3 --> B4
+    A4 --> B4
+    B4 --> B5["constrained_beam()<br/>model picks 4 of the 20"]
+    B5 --> B6["re-rank (Eq. 5)<br/>pick 1 of ~12"]
+    B6 --> B7["FusionT5<br/>rewrites it (Eq. 6)"]
+  end
+</pre>
+
+<!-- ============================================================ 1 -->
+<h2>Step 1 · Turn text into numbers: <code>embed</code></h2>
+<p class="where">sage.py line 186 · used for replies, queries, COMET and HEAL</p>
+<pre>h = model.encoder(**enc).last_hidden_state
+m = enc.attention_mask.unsqueeze(-1).float()
+out.append(F.normalize((h * m).sum(1) / m.sum(1), dim=-1).float().cpu())</pre>
+<ol class="lines">
+  <li>Run the text through the T5 <strong>encoder</strong>. Every token gets a vector of 768 numbers.</li>
+  <li>Make a mask that is 1 for real tokens and 0 for padding, so padding is ignored.</li>
+  <li>Average the token vectors into one vector for the whole text ("mean pooling"), then scale it to length 1 so that a dot product equals cosine similarity.</li>
+</ol>
+
+<!-- ============================================================ 2 -->
+<h2>Step 2 · Build the index: <code>RQVAE</code> and <code>cmd_build_index</code></h2>
+<p class="where">sage.py lines 207 and 241 · paper Section 3.2, Eq. 2 · command <code>python sage.py build-index</code></p>
+<p>The core of the residual quantiser:</p>
+<pre>for book in self.books:                       # 4 codebooks, 512 vectors each
+    cost = torch.cdist(r, book) ** 2
+    idx = sinkhorn(cost.detach()) if balance else cost.argmin(1)
+    e = book[idx]
+    codes.append(idx)
+    zq = zq + e
+    r = r - e.detach()</pre>
+<ol class="lines">
+  <li>Repeat 4 times, once per level. Each level has its own "codebook" of 512 learned prototype vectors.</li>
+  <li>Measure the distance from what is left (<code>r</code>, the residual) to every prototype.</li>
+  <li>Pick the nearest prototype. During training, <code>sinkhorn</code> spreads choices evenly so no prototype goes unused.</li>
+  <li>Look up that prototype's vector.</li>
+  <li>Write down its number. This is one digit of the ResID.</li>
+  <li>Keep a running sum of the chosen prototypes (used to train the RQ-VAE).</li>
+  <li>Subtract it. What is left is smaller and goes to the next level, which codes finer detail.</li>
+</ol>
+<p>And what <code>cmd_build_index</code> does with it:</p>
+<pre>R = embed(model, tok, [e["response"] for e in train])     # every training reply
+...train the RQ-VAE for 50 epochs...
+codes = rq.codes(R.to(DEV)).cpu()                         # shape [N, 4]
+torch.save({"rq": ..., "codes": codes, "emb": R, ...}, "ckpt/index/index.pt")</pre>
+<p>The index stores, for every training reply, its 4-number code <em>and</em> its vector. A reply might get the code <code>(17, 403, 88, 251)</code>.</p>
+<div class="note tip"><strong>What to check after running it.</strong> The command prints <code>codes used per level</code> and <code>unique ResIDs N/M</code>. If only a few codes are used, many replies share a code and retrieval cannot tell them apart.</div>
+
+<!-- ============================================================ 3 -->
+<h2>Step 3 · Encode the query and pick strategies</h2>
+<p class="where">sage.py, inside <code>SageModel.respond</code> (line 538) · paper Eq. 3</p>
+<pre>src = "context: " + ctx_text(e)
+q = embed(sr, tok, [src])[0]
+qcode = self.rq.codes(q.unsqueeze(0).to(DEV))[0].cpu()
+sprob = F.softmax(strategy_logprobs(sr, tok, src) / a.tau, 0)
+top_s = [STRATEGIES[j] for j in sprob.topk(a.bs_strat).indices.tolist()]</pre>
+<ol class="lines">
+  <li>Build the input text from the last 6 utterances.</li>
+  <li>Turn the conversation into a vector with the same <code>embed</code>.</li>
+  <li>Give the conversation its own 4-number code with the same RQ-VAE. (The paper never says how the query gets a code; this is our assumption.)</li>
+  <li>Ask the T5 how likely it is to start its answer with each of the 8 strategies, and turn that into probabilities. <code>tau</code> makes them sharper or flatter.</li>
+  <li>Keep the 3 most likely strategies (<code>--bs-strat 3</code>).</li>
+</ol>
+
+<!-- ============================================================ 4 -->
+<h2>Step 4 · Find candidates: <code>resid_topk</code></h2>
+<p class="where">sage.py line 365 · paper Section 3.2 (Hamming distance) · this is the "retriever"</p>
+<pre>def resid_topk(qcode, qemb, codes, emb, mask, r, use_resid=True):
+    cos = emb @ qemb
+    score = -(codes != qcode).sum(1).float() * 10.0 + cos if use_resid else cos
+    score[~mask] = -1e9
+    return score.topk(min(r, int(mask.sum()))).indices.tolist()</pre>
+<ol class="lines">
+  <li>Inputs: the query's code and vector, every stored code and vector, a <code>mask</code> saying which replies are allowed, and how many to return (<code>r</code> = 20).</li>
+  <li>Cosine similarity between the query and every stored reply (a number between −1 and 1).</li>
+  <li>Count how many of the 4 code positions differ (the <strong>Hamming distance</strong>, 0 to 4). Multiply by −10 so that fewer differences is a higher score, and add cosine to break ties. With <code>--no-resid</code> only cosine is used (an ablation).</li>
+  <li>Replies that are not allowed get a hopeless score.</li>
+  <li>Return the positions of the 20 best replies.</li>
+</ol>
+<p>It is called once per strategy, and the mask limits it to replies that used that strategy:</p>
+<pre>for s in top_s:
+    mask = torch.tensor([x == s for x in self.strat_of])
+    ids = resid_topk(qcode, q, self.codes, self.emb, mask, a.r, use_resid=not a.no_resid)</pre>
+<p>So for "Question" it returns the 20 closest training replies that were questions, and so on.</p>
+
+<!-- ============================================================ 5 -->
+<h2>Step 5 · Let the model choose: <code>Trie</code> and <code>constrained_beam</code></h2>
+<p class="where">sage.py lines 453 and 471 · paper Eq. 4 · this is the "self" in self-retrieval</p>
+<pre>targets = [target_text(s, train[j]["response"]) for j in ids]   # "[STRAT] s [RESP] reply"
+seqs = [tok(t, add_special_tokens=True).input_ids for t in targets]
+trie = Trie(seqs)
+def allowed(_, ids):
+    nxt = trie.next(ids.tolist()[1:])
+    return nxt or [tok.eos_token_id]
+out = model.generate(**enc, num_beams=beams, prefix_allowed_tokens_fn=allowed, ...)</pre>
+<ol class="lines">
+  <li>Write each of the 20 candidates in the same format the model was trained to produce.</li>
+  <li>Turn each into token IDs.</li>
+  <li>Build a <strong>trie</strong>: a tree where candidates that start the same way share branches.</li>
+  <li><code>allowed</code> is called at every decoding step with the tokens written so far.</li>
+  <li>It walks the trie and returns only the tokens that continue one of the candidates. Every other token gets probability zero.</li>
+  <li>If no candidate continues from here, the only allowed token is "end of sentence".</li>
+  <li>Beam search keeps the 4 best paths (<code>--br 4</code>). Because of the trie, each finished path is exactly one of the 20 candidates, ranked by how likely the model finds it for this conversation.</li>
+</ol>
+<div class="note tip"><strong>Why this matters.</strong> In ordinary RAG the retriever's similarity score decides. Here the <em>generator</em> ranks the candidates with the same probabilities it would use to write a reply. With <code>--no-constraint</code> the trie is removed and the model writes freely (Table 6 ablation).</div>
+<p>3 strategies × 4 beams gives up to 12 candidates, each kept with its strategy probability.</p>
+
+<!-- ============================================================ 6 -->
+<h2>Step 6 · Re-rank: Eq. 5</h2>
+<p class="where">sage.py, inside <code>respond</code>, plus <code>p_valid</code> (line 508)</p>
+<pre>pv = p_valid(sr, tok, ctx_text(e), [c[1] for c in cands])
+log_s = torch.tensor([math.log(c[2] + 1e-12) for c in cands]) + torch.log(pv + 1e-12) / a.delta
+if kn.get("comet") and not a.no_comet:
+    log_s += a.alpha * torch.log((cemb @ ce.T).mean(1).clamp_min(1e-6))
+if kn.get("heal") and not a.no_heal:
+    log_s += a.beta * torch.log((cemb @ he.T).max(1).values.clamp_min(1e-6))
+best = int(log_s.argmax())</pre>
+<ol class="lines">
+  <li><code>p_valid</code> asks the T5 "judge: &lt;conversation&gt; response: &lt;candidate&gt;" and reads the probability of "yes". The model learned this in training with real replies (yes) and replies from other dialogues (no). This is σ_valid.</li>
+  <li>Start each candidate's score with log(strategy probability) + log(P(yes)) / δ. Logs turn the paper's product into a sum, which is numerically safer.</li>
+  <li>If COMET inferences exist for this example…</li>
+  <li>…add α × log(average similarity between the candidate and the COMET inferences). This is σ_comet.</li>
+  <li>If HEAL expert replies exist…</li>
+  <li>…add β × log(highest similarity to any HEAL reply). This is σ_heal.</li>
+  <li>The candidate with the highest total wins. Its strategy is <code>s_star</code> and its text is <code>r_star</code>.</li>
+</ol>
+<div class="note warn"><strong>In our Colab runs</strong> COMET and HEAL are switched off (<code>--knowledge none</code>), so lines 3–6 do nothing and the score is strategy probability × validity only.</div>
+
+<!-- ============================================================ 7 -->
+<h2>Step 7 · Hand the retrieved reply to the generator</h2>
+<p class="where">sage.py: <code>fusion_inputs</code> (line 350), <code>FusionT5</code> (line 322) · paper Eq. 6</p>
+<pre>ctx = f"[STRAT] {s_star} [CAND] {r_star} [CTX] {ctx_text(e)}"
+H  = enc(**ctx).last_hidden_state
+HC = enc(**comet).last_hidden_state
+HH = enc(**heal).last_hidden_state
+l1, l2, l3 = F.softmax(self.lam, 0)
+return l1 * H + l2 * ca_c(H, HC) + l3 * ca_h(H, HH)</pre>
+<ol class="lines">
+  <li>This is where the "augmented" part of RAG happens. The retrieved reply goes into the generator's input after <code>[CAND]</code>, together with the chosen strategy and the conversation.</li>
+  <li>Encode that input.</li>
+  <li>Encode the COMET text separately.</li>
+  <li>Encode the HEAL text separately.</li>
+  <li>Three learned weights that always add up to 1.</li>
+  <li>Mix them: the context, plus what the context "finds" in COMET and in HEAL through cross-attention. The decoder writes the final reply from this mix.</li>
+</ol>
+<p>The generator learned this in <code>cmd_train_fusion</code>: for each training turn it was given a <em>retrieved</em> reply with the right strategy from a <em>different</em> dialogue, and had to produce the real reply. So it learned to adapt a similar past reply to the current conversation, not to copy it. With <code>--retrieval-only</code> this step is skipped and <code>r_star</code> is the answer.</p>
+
+<h2>Where else retrieval runs</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Function</th><th>What retrieval is used for</th></tr></thead>
+<tbody>
+<tr><td><code>cmd_train_fusion</code></td><td>Retrieves one training candidate per example, from another dialogue, to teach the fusion model.</td></tr>
+<tr><td><code>cmd_eval_retrieval</code></td><td>Table 4: puts each test reply in a pool of 100, runs steps 4 and 5, and checks whether the real reply comes out on top (R@1, R@10, MRR, nDCG).</td></tr>
+<tr><td><code>bm25_baseline.py</code></td><td>A classic keyword retriever, as an ordinary-RAG-style floor to compare against.</td></tr>
+</tbody></table></div>
+
+<h2>Check yourself</h2>
+<p>Questions a supervisor is likely to ask. Try to answer before opening each one.</p>
+<details><summary>What is a ResID and which code makes it?</summary><p>A 4-number code for a reply, made by the RQ-VAE in <code>RQVAE.quantise</code> / <code>RQVAE.codes</code>, built for all training replies by <code>cmd_build_index</code>.</p></details>
+<details><summary>Which function is the retriever?</summary><p><code>resid_topk</code>. It ranks stored replies by Hamming distance between ResIDs, with cosine similarity to break ties, limited to one strategy at a time.</p></details>
+<details><summary>Why is it called <em>self</em>-retrieval?</summary><p>Because the generator itself picks among the candidates: <code>constrained_beam</code> forces T5 to write out one of the retrieved replies, and its own beam scores rank them. There is no separate ranking model.</p></details>
+<details><summary>How is SAGE different from GPT-4o + RAG?</summary><p>GPT-4o + RAG uses a separate retriever and pastes results into a prompt. SAGE uses learned discrete codes for the index, the generator ranks candidates by constrained decoding, candidates are filtered by support strategy, a psychological re-ranker picks one, and a fusion model rewrites it with COMET and HEAL knowledge.</p></details>
+<details><summary>What happens if no candidate is found?</summary><p>The code falls back to an "Information" reply (Section 3.3), in <code>respond</code>: <code>if not cands: ...</code>.</p></details>
+<details><summary>How would you test whether ResIDs actually help?</summary><p>Run <code>python sage.py infer --no-resid</code>, which retrieves by cosine only, and compare the scores with the normal run (Table 6 ablation).</p></details>
+</main>
