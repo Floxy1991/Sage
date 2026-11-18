@@ -1,0 +1,788 @@
+<title>SAGE Code Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: sticky table of contents on the left (wide screens), one reading column; each function is a labelled card. */
+:root {
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --fg: #1b2430;
+  --muted: #5a6676;
+  --line: #dde3ea;
+  --accent: #1f6f8b;
+  --accent-soft: #e2f0f5;
+  --code-bg: #eef2f6;
+  --warn: #8a5a00;
+  --warn-soft: #fff4dc;
+  --tip: #22693f;
+  --tip-soft: #e3f4ea;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161c; --surface: #18202a; --fg: #e3e9ef; --muted: #9aa7b6; --line: #2a3542;
+    --accent: #6cc0dc; --accent-soft: #17323d; --code-bg: #1f2935;
+    --warn: #f0c060; --warn-soft: #33290f; --tip: #7fd6a0; --tip-soft: #15301f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e3e9ef; --muted: #9aa7b6; --line: #2a3542;
+  --accent: #6cc0dc; --accent-soft: #17323d; --code-bg: #1f2935;
+  --warn: #f0c060; --warn-soft: #33290f; --tip: #7fd6a0; --tip-soft: #15301f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 16.5px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 48px; padding-block: 40px 80px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; font-size: 14px; }
+nav.toc p { font-family: var(--f-display); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+nav.toc .sub a { padding-left: 22px; color: var(--muted); font-size: 13.5px; }
+main { min-width: 0; max-width: 780px; }
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(32px, 5vw, 46px); font-weight: 750; margin: 0 0 12px; letter-spacing: -.01em; }
+h2 { font-size: 28px; font-weight: 750; margin: 64px 0 12px; padding-top: 12px; border-top: 2px solid var(--line); scroll-margin-top: 16px; }
+h3 { font-size: 21px; font-weight: 600; margin: 36px 0 8px; scroll-margin-top: 16px; }
+h4 { font-size: 17px; font-weight: 600; margin: 24px 0 6px; }
+.lede { font-size: 19px; color: var(--muted); margin: 0 0 20px; }
+.eyebrow { font-family: var(--f-mono); font-size: 13px; color: var(--accent); letter-spacing: .02em; margin: 0 0 6px; }
+p { margin: 0 0 14px; }
+a { color: var(--accent); }
+code, pre, .mono { font-family: var(--f-mono); font-size: .86em; }
+:not(pre) > code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 0 0 16px; font-size: 13.5px; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); text-align: center; }
+ul, ol { margin: 0 0 14px; padding-left: 22px; }
+li { margin-bottom: 4px; }
+.table-wrap { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-display); font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+.fn { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px 6px; margin: 0 0 16px; }
+.fn > .sig { font-family: var(--f-mono); font-size: 14.5px; font-weight: 600; color: var(--accent); margin: 0 0 10px; overflow-wrap: anywhere; }
+.fn dl { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px 14px; margin: 0 0 10px; }
+.fn dt { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.fn dd { margin: 0; }
+.fn dd.change { color: var(--tip); }
+.note { border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; font-size: 15.5px; }
+.note.warn { background: var(--warn-soft); }
+.note.warn strong:first-child { color: var(--warn); }
+.note.tip { background: var(--tip-soft); }
+.note.tip strong:first-child { color: var(--tip); }
+.note.info { background: var(--accent-soft); }
+.files { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 0 0 18px; }
+.files a { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; text-decoration: none; color: var(--fg); }
+.files a:hover, .files a:focus-visible { border-color: var(--accent); outline: none; }
+.files b { font-family: var(--f-mono); font-size: 14px; color: var(--accent); display: block; }
+.files span { font-size: 14px; color: var(--muted); }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps > li { counter-increment: s; position: relative; padding-left: 40px; margin-bottom: 14px; }
+.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-family: var(--f-display); font-weight: 750; display: grid; place-items: center; font-size: 14px; }
+dl.gloss { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 8px 18px; }
+dl.gloss dt { font-weight: 700; }
+dl.gloss dd { margin: 0; }
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-block: 24px 60px; }
+  nav.toc { position: static; max-height: none; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--surface); }
+  nav.toc .sub { display: none; }
+  .fn dl, dl.gloss { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .fn dd { margin-bottom: 8px; }
+  dl.gloss dd { margin-bottom: 10px; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#start">Start here</a></li>
+    <li><a href="#map">How the files connect</a></li>
+    <li><a href="#data">The data row</a></li>
+    <li><a href="#prepare">prepare_data.py</a></li>
+    <li><a href="#metrics">metrics.py</a></li>
+    <li><a href="#bm25">bm25_baseline.py</a></li>
+    <li><a href="#llm">llm_baseline.py</a></li>
+    <li><a href="#sage">sage.py</a></li>
+    <li class="sub"><a href="#s-util">Shared helpers</a></li>
+    <li class="sub"><a href="#s1">1 · Self-retrieval model</a></li>
+    <li class="sub"><a href="#s2">2 · RQ-VAE index</a></li>
+    <li class="sub"><a href="#s3">3 · COMET and HEAL</a></li>
+    <li class="sub"><a href="#s4">4 · Fusion generator</a></li>
+    <li class="sub"><a href="#s5">5 · Inference</a></li>
+    <li class="sub"><a href="#walk">One reply, step by step</a></li>
+    <li class="sub"><a href="#s-cli">Commands and flags</a></li>
+    <li><a href="#esc">esc_eval.py</a></li>
+    <li><a href="#compare">compare.py</a></li>
+    <li><a href="#notebooks">The notebooks</a></li>
+    <li><a href="#modify">How to modify it</a></li>
+    <li><a href="#reuse">Using SAGE in your own code</a></li>
+    <li><a href="#gloss">Glossary</a></li>
+  </ol>
+</nav>
+
+<main>
+<p class="eyebrow">sage-repro · code walkthrough</p>
+<h1 id="start">What each part of the SAGE code does</h1>
+<p class="lede">A file-by-file and function-by-function guide to the SAGE reproduction kit: what each piece takes in, what it gives back, which part of the paper it implements, and where to change it.</p>
+
+<p>The kit re-implements <em>SAGE: Self-retrieval-augmented generative LLM for emotional support conversation</em> (Yang et al., ESWA 2026). The authors released no code, so every script here was written from the paper's description. Where the paper is silent, the code says <code>ASSUMPTION</code> in a comment. Those are usually the first places you would want to change.</p>
+
+<div class="note info"><strong>How to read this page.</strong> Read "How the files connect" and "The data row" first. They explain the two things every script shares: the list of 8 strategies and the shape of one training example. After that, each file section can be read on its own. The biggest one is <code>sage.py</code>, which is the paper's method.</div>
+
+<h2 id="map">How the files connect</h2>
+<p>There are seven Python scripts and two notebooks. Data flows in one direction: raw ESConv becomes JSONL examples, the models read those examples and write predictions, the metrics score the predictions, and <code>compare.py</code> puts the scores beside the paper's.</p>
+
+<pre class="mermaid">
+flowchart TD
+  A["data/ESConv.json<br/>1,300 raw dialogues"] --> B["prepare_data.py<br/>split + one row per supporter turn"]
+  B --> C["data/paper/*.jsonl<br/>data/zcj/*.jsonl"]
+  C --> D["bm25_baseline.py<br/>keyword-search floor"]
+  C --> E["llm_baseline.py<br/>Qwen / LLaMA / Mistral"]
+  C --> F["sage.py<br/>the SAGE method"]
+  D --> G["results/*/predictions.jsonl"]
+  E --> G
+  F --> G
+  G --> H["metrics.py<br/>ACC, F1, BLEU, ROUGE..."]
+  H --> I["results/*/metrics.json"]
+  F --> J["esc_eval.py<br/>role-play test on ESC-Eval"]
+  E -.prompt reused.-> J
+  J --> I
+  I --> K["compare.py<br/>ours vs paper table"]
+</pre>
+
+<div class="files">
+  <a href="#prepare"><b>prepare_data.py</b><span>Turns raw dialogues into train/valid/test rows.</span></a>
+  <a href="#metrics"><b>metrics.py</b><span>Every score the paper reports.</span></a>
+  <a href="#bm25"><b>bm25_baseline.py</b><span>A no-learning baseline that runs on CPU.</span></a>
+  <a href="#llm"><b>llm_baseline.py</b><span>Prompts a 7B chat LLM to pick a strategy and reply.</span></a>
+  <a href="#sage"><b>sage.py</b><span>The SAGE pipeline: train, index, retrieve, re-rank, generate.</span></a>
+  <a href="#esc"><b>esc_eval.py</b><span>The second dataset: a simulated seeker chats with the system, a judge scores it.</span></a>
+  <a href="#compare"><b>compare.py</b><span>Prints our numbers next to the paper's.</span></a>
+  <a href="#notebooks"><b>*.ipynb</b><span>Colab launchers for all of the above.</span></a>
+</div>
+
+<p>Two things are imported across files. Changing them changes everything downstream.</p>
+<ul>
+  <li><code>STRATEGIES</code> in <code>prepare_data.py</code>: the 8 support strategy names. <code>metrics.py</code>, <code>llm_baseline.py</code> and <code>sage.py</code> all import it.</li>
+  <li><code>generation_metrics</code>, <code>strategy_metrics</code>, <code>retrieval_metrics</code> in <code>metrics.py</code>: every model script scores itself with these.</li>
+</ul>
+
+<h2 id="data">The data row</h2>
+<p>Every model in the kit reads the same JSONL files. Each line is <strong>one supporter turn</strong> that the model must predict. Here is a real row from <code>data/paper/test.jsonl</code>, shortened:</p>
+<pre>{
+  "id": "test-0-5",              // split - dialogue index - turn index
+  "dialog_idx": 0,               // which dialogue it came from
+  "turn_idx": 5,                 // position of this reply in the dialogue
+  "num_prev_turns": 5,           // utterances before it (used for Table 8 buckets)
+  "situation": "It is not well to do better information for gather with my friends...",
+  "emotion_type": "disgust",
+  "problem_type": "problems with friends",
+  "context": [                   // everything said before this reply
+    {"speaker": "sys", "text": "Hi, can i help today? ...", "strategy": "Question"},
+    {"speaker": "usr", "text": "hi", "strategy": null},
+    ...
+    {"speaker": "usr", "text": "i am in disputed mod with my friends", "strategy": null}
+  ],
+  "query": "i am in disputed mod with my friends",   // last seeker utterance (u_t in the paper)
+  "response": "I am sorry to hear that. So, you and your friends are not seeing eye to eye? ...",  // gold reply
+  "strategy": "Question"                              // gold strategy
+}</pre>
+<p><code>usr</code> is the help-seeker and <code>sys</code> is the supporter. The model sees <code>context</code> (and sometimes <code>situation</code>) and must produce <code>strategy</code> and <code>response</code>. The metrics compare its output against these two gold fields.</p>
+
+<!-- ================================================================ prepare -->
+<h2 id="prepare">prepare_data.py</h2>
+<p class="eyebrow">Paper: Section 4.1 (dataset and split)</p>
+<p>Reads the raw <code>ESConv.json</code> and writes six files: train/valid/test for two different splits. You run it once. The outputs are already committed in <code>data/paper</code> and <code>data/zcj</code>.</p>
+
+<div class="fn">
+  <p class="sig">STRATEGIES</p>
+  <dl>
+    <dt>What</dt><dd>The list of 8 ESConv support strategies, in a fixed order.</dd>
+    <dt>Used by</dt><dd>metrics (per-strategy F1, entropy), llm_baseline (answer parsing), sage (strategy scoring loops over this list).</dd>
+    <dt>Change it</dt><dd class="change">To use a dataset with different labels, edit this list. Then update <code>STRATEGY_DESC</code> in llm_baseline.py to match.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">norm(text) → str</p>
+  <dl>
+    <dt>What</dt><dd>Collapses repeated spaces and newlines into one space.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">reformat(d) → dict</p>
+  <dl>
+    <dt>What</dt><dd>Converts one raw ESConv dialogue into a simpler shape: speakers become <code>usr</code>/<code>sys</code>, and only supporter turns keep a strategy.</dd>
+    <dt>Takes</dt><dd>One dialogue from ESConv.json.</dd>
+    <dt>Gives</dt><dd><code>{emotion_type, problem_type, situation, dialog: [{text, speaker, strategy?}]}</code></dd>
+    <dt>Why</dt><dd>It copies the logic of the official thu-coai preprocessing, so the <code>zcj</code> split matches the one older baselines used.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">split_dialogs(data, mode) → {"train", "valid", "test"}</p>
+  <dl>
+    <dt>What</dt><dd>Shuffles the 1,300 dialogues with seed 13 and cuts them into three parts. Splitting by <em>dialogue</em>, not by turn, keeps every test conversation unseen during training.</dd>
+    <dt>Modes</dt><dd><code>paper</code>: 910/130/260 (7:1:2), as SAGE states. <code>zcj</code>: 70/15/15, the split most earlier ESC papers used.</dd>
+    <dt>Change it</dt><dd class="change">Change the seed or the ratios here. Every model script picks a split with <code>--split paper</code> or <code>--split zcj</code>, so a new mode name needs a new folder under <code>data/</code>.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">to_examples(dialogs, split) → list[dict]</p>
+  <dl>
+    <dt>What</dt><dd>Walks each dialogue and emits one row (the shape shown above) for every supporter turn that has at least one seeker utterance before it. Opening greetings with nothing to respond to are skipped.</dd>
+    <dt>Change it</dt><dd class="change">This is where you would add a field your own model needs, such as the strategy history or the emotion intensity. Downstream code ignores fields it does not use, so adding is safe.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">main()</p>
+  <dl>
+    <dt>What</dt><dd>Runs the above for both modes and writes <code>data/{paper,zcj}/{train,valid,test}.jsonl</code>, printing counts.</dd>
+    <dt>Run</dt><dd><code>python prepare_data.py --esconv data/ESConv.json --out data</code></dd>
+  </dl>
+</div>
+
+<!-- ================================================================ metrics -->
+<h2 id="metrics">metrics.py</h2>
+<p class="eyebrow">Paper: Section 4.2, Eqs. 7–10, Tables 1–4</p>
+<p>All the evaluation numbers in one place. Nothing here trains or loads a model. It compares text and labels. You can also run it on any predictions file: <code>python metrics.py results/qwen/predictions.jsonl</code>.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Metric</th><th>Measures</th><th>Better</th></tr></thead>
+<tbody>
+<tr><td>ACC</td><td>Share of turns where the predicted strategy equals the gold strategy.</td><td>higher</td></tr>
+<tr><td>Macro-F1</td><td>F1 per strategy, then averaged, so rare strategies count as much as common ones.</td><td>higher</td></tr>
+<tr><td>B-2, B-4 (BLEU)</td><td>Word-pair and 4-word overlap between the reply and the gold reply.</td><td>higher</td></tr>
+<tr><td>D-1, D-2 (Distinct)</td><td>Share of unique words and word pairs across all replies. Low means repetitive.</td><td>higher</td></tr>
+<tr><td>R-L (ROUGE-L)</td><td>Longest shared word sequence with the gold reply, β = 1.2 as in Eq. 10.</td><td>higher</td></tr>
+<tr><td>Entropy</td><td>How evenly the model spreads its strategy choices (max log₂8 = 3).</td><td>higher</td></tr>
+<tr><td>Bias (JSD)</td><td>Distance between the model's strategy distribution and a uniform one.</td><td>lower</td></tr>
+<tr><td>R@K, MRR@10, nDCG@10</td><td>Whether, and how high, the correct reply appears in a ranked list.</td><td>higher</td></tr>
+<tr><td>PPL</td><td>Perplexity of the gold reply under the model. Computed in the model scripts, not here.</td><td>lower</td></tr>
+</tbody></table></div>
+
+<div class="fn">
+  <p class="sig">tokenize(text) → list[str]</p>
+  <dl>
+    <dt>What</dt><dd>Lowercases and splits off <code>. , ? !</code> so they count as separate words.</dd>
+    <dt>Change it</dt><dd class="change">BLEU and Distinct depend heavily on tokenisation. If you compare against a paper that used a different tokenizer (for example nltk's <code>word_tokenize</code>), swap it here and every metric follows.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">distinct(hyps, n) · lcs(a, b) · rouge_l(hyp, ref, beta=1.2)</p>
+  <dl>
+    <dt>What</dt><dd>Small building blocks. <code>distinct</code> counts unique n-grams over all replies. <code>lcs</code> is the classic longest-common-subsequence dynamic program. <code>rouge_l</code> turns the LCS length into an F-score.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">generation_metrics(refs, hyps) → {B-2, B-4, D-1, D-2, R-L}</p>
+  <dl>
+    <dt>Takes</dt><dd>Two equal-length lists of strings: gold replies and model replies.</dd>
+    <dt>Gives</dt><dd>A dict of scores ×100. BLEU is corpus-level with nltk smoothing method 1 (an assumption; the paper does not say).</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">strategy_metrics(gold, pred) → {ACC, Macro-F1, Entropy, Bias(JSD), per_strategy_F1}</p>
+  <dl>
+    <dt>Takes</dt><dd>Two lists of strategy names.</dd>
+    <dt>Gives</dt><dd>Accuracy, Macro-F1 (scikit-learn), and the two bias measures from Table 3, both in log base 2.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">retrieval_metrics(ranked_lists, golds, ks=(1, 5, 10)) → {R@1, R@5, R@10, MRR@10, nDCG@10}</p>
+  <dl>
+    <dt>Takes</dt><dd>For each query, a ranked list of candidate IDs, and the ID of the one correct candidate.</dd>
+    <dt>Note</dt><dd>With exactly one relevant item, nDCG reduces to <code>1 / log₂(rank + 1)</code>.</dd>
+  </dl>
+</div>
+
+<div class="fn">
+  <p class="sig">evaluate_file(path) → dict</p>
+  <dl>
+    <dt>What</dt><dd>Reads a predictions file and runs whichever metric groups its rows support: generation if rows have <code>prediction</code>, strategy if they have <code>pred_strategy</code>, retrieval if they have <code>ranked_ids</code>.</dd>
+    <dt>Change it</dt><dd class="change">To add a metric (say, BERTScore), write a function, call it here, and add its key to <code>COLS</code> in compare.py.</dd>
+  </dl>
+</div>
+
+<!-- ================================================================ bm25 -->
+<h2 id="bm25">bm25_baseline.py</h2>
+<p class="eyebrow">Paper: no row of its own; a floor for Tables 1, 4 and 8</p>
+<p>BM25 is classic keyword search. It needs no GPU and no training, so it shows what "no learning at all" scores. If a trained model does not beat it, something is wrong. Its result is already in <code>results/bm25_paper/</code>.</p>
+
+<div class="fn">
+  <p class="sig">query_text(ex, turns=3) → str</p>
+  <dl>
+    <dt>What</dt><dd>Joins the last 3 context utterances into the search query.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">bucket(n_prev) → "1-2" | "3-4" | "5-6" | "&gt;=7"</p>
+  <dl>
+    <dt>What</dt><dd>Groups examples by dialogue length for the Table 8 breakdown. One "turn" is a seeker + supporter pair, so it halves the utterance count.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">main()</p>
+  <dl>
+    <dt>Part 1</dt><dd><strong>Retrieval.</strong> Indexes every gold reply in the test set, searches it with each query, and checks where the query's own gold reply lands. Scored with <code>retrieval_metrics</code>.</dd>
+    <dt>Part 2</dt><dd><strong>Generation.</strong> Finds the most similar training context and returns that turn's reply and strategy as the "prediction". Scored with <code>generation_metrics</code> and <code>strategy_metrics</code>.</dd>
+    <dt>Writes</dt><dd><code>results/bm25_*/predictions.jsonl</code> and <code>metrics.json</code>.</dd>
+  </dl>
+</div>
+
+<!-- ================================================================ llm -->
+<h2 id="llm">llm_baseline.py</h2>
+<p class="eyebrow">Paper: Section 4.4, the Qwen / LLaMA / Mistral rows of Tables 1–3</p>
+<p>Gives a 7–8B instruction-tuned chat model the conversation plus descriptions of the 8 strategies, and asks it to answer as <code>Strategy: ...</code> then <code>Response: ...</code>. No fine-tuning happens. This is the "just prompt an LLM" comparison SAGE claims to beat.</p>
+
+<div class="fn">
+  <p class="sig">STRATEGY_DESC · SYSTEM</p>
+  <dl>
+    <dt>What</dt><dd>One-sentence definitions of each strategy (from the ESConv paper) and the system prompt built from them. The paper never printed its prompt, so this is our version.</dd>
+    <dt>Change it</dt><dd class="change">Edit <code>SYSTEM</code> to try few-shot examples, a different persona, or a chain-of-thought step. <code>esc_eval.py</code> imports the same prompt, so the change carries over.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">user_prompt(ex, max_turns=10) · build_prompt(tok, ex)</p>
+  <dl>
+    <dt>What</dt><dd><code>user_prompt</code> writes the situation and the last 10 utterances as "Help-seeker:" / "Supporter:" lines. <code>build_prompt</code> wraps system + user messages in the model's own chat template. Mistral's template rejects a system role, so the fallback merges the system text into the user message.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">parse(text) → (strategy, response)</p>
+  <dl>
+    <dt>What</dt><dd>Reads the model's output with regular expressions. Maps the strategy line onto one of the 8 names (loosely, by first word), defaulting to <code>Others</code>. Keeps the first line after <code>Response:</code>.</dd>
+    <dt>Change it</dt><dd class="change">If a model formats its answer differently and most predictions come back as "Others", fix the matching here. Check the saved <code>raw</code> field in predictions.jsonl to see what the model actually wrote.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">gold_nll(model, tok, prompt, ex) → (total_loss, n_tokens)</p>
+  <dl>
+    <dt>What</dt><dd>For perplexity. Feeds prompt + <code>Strategy: &lt;gold&gt;</code> + the gold reply, masks everything except the reply (label −100), and returns the summed loss. PPL = exp(total loss / total tokens) over the test set.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">main()</p>
+  <dl>
+    <dt>Steps</dt><dd>Loads the model (optionally 4-bit), generates greedily in batches, parses, writes each row as it goes, then scores the whole file.</dd>
+    <dt>Resumes</dt><dd>It skips IDs already in predictions.jsonl, so a Colab disconnect does not lose work. Delete the file to start over.</dd>
+    <dt>Flags</dt><dd><code>--model</code> any Hugging Face chat model · <code>--load-4bit</code> fits on 8 GB · <code>--limit 200</code> quick check · <code>--no-ppl</code> skips perplexity (faster).</dd>
+  </dl>
+</div>
+
+<!-- ================================================================ sage -->
+<h2 id="sage">sage.py</h2>
+<p class="eyebrow">Paper: Section 3 (the method), Appendix B, Tables 1, 2, 4, 6, 8</p>
+<p>This is SAGE itself. It is one file with six commands, run in order. Each command saves something the next one loads.</p>
+
+<pre class="mermaid">
+flowchart LR
+  T1["train-selfret<br/>T5 learns strategy+reply<br/>and yes/no judging"] --> C1[("ckpt/selfret")]
+  C1 --> T2["build-index<br/>RQ-VAE gives every<br/>training reply a ResID"]
+  T2 --> C2[("ckpt/index")]
+  C1 --> T3["knowledge (optional)<br/>COMET + HEAL"]
+  T3 --> C3[("data/knowledge")]
+  C1 --> T4["train-fusion<br/>second T5 with<br/>knowledge cross-attention"]
+  C2 --> T4
+  C3 --> T4
+  T4 --> C4[("ckpt/fusion")]
+  C1 --> I["infer / eval-retrieval"]
+  C2 --> I
+  C3 --> I
+  C4 --> I
+  I --> R["results/sage"]
+</pre>
+
+<p>In plain words, SAGE answers a seeker in five moves, and the code follows them:</p>
+<ol class="steps">
+  <li><strong>Pick likely strategies.</strong> The self-retrieval T5 scores all 8 strategies for this context and keeps the top 3 (Eq. 3).</li>
+  <li><strong>Find candidate replies.</strong> For each strategy, look up the 20 training replies with that strategy whose ResID code is closest to the query's (Section 3.2).</li>
+  <li><strong>Let the model re-generate them.</strong> T5 decodes, but may only produce token sequences that spell one of those 20 replies. Beam search keeps the 4 it likes most (Eq. 4).</li>
+  <li><strong>Re-rank.</strong> Score each of the ~12 candidates by strategy probability × "is this a valid reply" × COMET match × HEAL match, and take the best (Eq. 5).</li>
+  <li><strong>Rewrite.</strong> A second T5 reads the context, the chosen strategy and the winning candidate (plus knowledge), and writes the final, new reply (Eq. 6).</li>
+</ol>
+
+<h3 id="s-util">Shared helpers and settings</h3>
+<div class="fn">
+  <p class="sig">DEV · AMP · SPECIAL · COMET_RELS</p>
+  <dl>
+    <dt>What</dt><dd><code>DEV</code> is "cuda" or "cpu". <code>AMP</code> turns on bf16 mixed precision only on GPUs that support it; the free Colab T4 does not, so it trains in fp32 there (T5 is unstable in fp16). <code>SPECIAL</code> are four marker tokens added to the vocabulary: <code>[STRAT] [RESP] [CAND] [CTX]</code>. <code>COMET_RELS</code> are the four commonsense relations used.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">ctx_text(ex, turns=6) → str</p>
+  <dl>
+    <dt>What</dt><dd>Turns the last 6 context utterances into one string: <code>"Seeker: ... Supporter: ... Seeker: ..."</code>. Every T5 input in the file is built from this.</dd>
+    <dt>Change it</dt><dd class="change">The paper does not give a context length. Raising <code>turns</code> gives the model more history (and longer inputs; the tokenizer cuts at 256 tokens). You could also prepend <code>ex["situation"]</code> here.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">target_text(strategy, response, use_strategy=True) → str</p>
+  <dl>
+    <dt>What</dt><dd>Builds the training target <code>"[STRAT] Question [RESP] How long has this been going on?"</code>. This is exactly the sequence in Eq. 1. With the ablation flag it drops the strategy part.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">get_tok(path) · batches(xs, n) · load(path) · seed_all(s)</p>
+  <dl>
+    <dt>What</dt><dd>Load a tokenizer with the special tokens added; chunk a list; read a JSONL file; fix random seeds.</dd>
+  </dl>
+</div>
+
+<h3 id="s1">Stage 1 · The self-retrieval model (<code>train-selfret</code>)</h3>
+<p class="eyebrow">Paper: Eq. 1, Section 3.4 (P_reject), Appendix B</p>
+<p>One T5-base model learns two jobs at the same time. This "self" model is reused later for strategy scoring, candidate decoding, judging and embedding, which is why the paper calls it <em>self</em>-retrieval.</p>
+
+<div class="fn">
+  <p class="sig">selfret_pairs(train, use_strategy, neg_ratio=1.0) → list[(input, target)]</p>
+  <dl>
+    <dt>Job A</dt><dd><code>"context: Seeker: ... "</code> → <code>"[STRAT] s [RESP] r"</code>. Learning this teaches the model which strategy fits and what a reply with that strategy looks like.</dd>
+    <dt>Job B</dt><dd><code>"judge: &lt;context&gt; response: &lt;reply&gt;"</code> → <code>"yes"</code> for the real next reply, <code>"no"</code> for a reply taken from a <em>different</em> dialogue. Later, P(yes) becomes σ_valid in Eq. 5.</dd>
+    <dt>Assumption</dt><dd>The paper never says how the model learns to reject replies. Random negatives at a 1:1 ratio is our choice.</dd>
+    <dt>Change it</dt><dd class="change">Harder negatives (a reply from the same dialogue but the wrong turn, or the right strategy but wrong content) would likely make the judge sharper. Swap the <code>random.choice(train)</code> line.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">train_seq2seq(model, tok, pairs, out, epochs, lr, bs, warmup, sched, grad_accum, fp16)</p>
+  <dl>
+    <dt>What</dt><dd>A plain PyTorch training loop for any (input text, target text) list: tokenise, compute the loss, AdamW step, learning-rate schedule, gradient clipping. Saves the model after every epoch, so a crash keeps the last epoch.</dd>
+    <dt>Note</dt><dd>Padding positions in the labels are set to −100 so they do not count in the loss. Inputs are cut at 256 tokens and targets at 128.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">cmd_train_selfret(a)</p>
+  <dl>
+    <dt>What</dt><dd>Loads <code>t5-base</code>, adds the special tokens, builds the pairs, trains for 3 epochs at lr 1e-4, batch 16, cosine schedule with 3% warm-up.</dd>
+    <dt>Saves</dt><dd><code>ckpt/selfret/</code> (a normal Hugging Face model folder).</dd>
+  </dl>
+</div>
+
+<h3 id="s2">Stage 2 · ResIDs with an RQ-VAE (<code>build-index</code>)</h3>
+<p class="eyebrow">Paper: Section 3.2, Eq. 2, Appendix B.2.1</p>
+<p>The goal is to give every training reply a short code of 4 numbers, for example <code>(17, 403, 88, 251)</code>, so that replies with similar meaning share most of their numbers. That code is the <strong>ResID</strong>. Retrieval then becomes "find replies whose codes differ in the fewest positions" (Hamming distance).</p>
+<p>How a code is made, in plain words: turn the reply into a vector. Find the nearest of 512 learned "prototype" vectors and write down its number. Subtract that prototype, which leaves a smaller leftover (the residual). Repeat on the leftover with a second set of 512 prototypes, then a third and a fourth. Each level adds finer detail.</p>
+
+<div class="fn">
+  <p class="sig">embed(model, tok, texts, bs=64) → Tensor[N, 768]</p>
+  <dl>
+    <dt>What</dt><dd>Runs texts through the T5 <em>encoder</em>, averages the token vectors (ignoring padding), and normalises to length 1. Used to embed replies, queries, COMET and HEAL text everywhere in the file.</dd>
+    <dt>Change it</dt><dd class="change">This is the single place that decides what "similar" means. Swapping in a sentence-embedding model (for example from <code>sentence-transformers</code>) here would change retrieval, COMET and HEAL scoring at once. Keep the output normalised.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">sinkhorn(cost, eps=0.1, iters=10) → code indices</p>
+  <dl>
+    <dt>What</dt><dd>During training, plain "pick the nearest prototype" tends to send most replies to a handful of codes. Sinkhorn rebalances the assignment so codes are used more evenly. The paper mentions this ("Sinkhorn regularization mitigates code usage bias").</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">class RQVAE(d_in=768, d_code=256, levels=4, size=512)</p>
+  <dl>
+    <dt>Parts</dt><dd><code>enc</code>: a small network that shrinks 768 → 256. <code>books</code>: 4 codebooks of 512 vectors each. <code>dec</code>: grows 256 back to 768.</dd>
+    <dt>quantise</dt><dd>The residual loop from Eq. 2. Returns the 4 code numbers, the summed prototype vector, and two small losses that pull prototypes and encodings toward each other.</dd>
+    <dt>forward</dt><dd>Encode, quantise, decode, and return the loss: reconstruction error + 0.25 × codebook loss + 0.25 × commitment loss. The "straight-through" line lets gradients pass through the non-differentiable "pick nearest" step.</dd>
+    <dt>codes</dt><dd>Inference only: vector in, 4 numbers out.</dd>
+    <dt>Assumption</dt><dd>The paper mentions a 6-layer Transformer but never says what it reads. We use a small MLP over sentence vectors.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">cmd_build_index(a)</p>
+  <dl>
+    <dt>Steps</dt><dd>Embed every training reply with the stage-1 encoder → start each codebook from real data points (so no code is dead at the start) → train the RQ-VAE for 50 epochs → compute every reply's code.</dd>
+    <dt>Prints</dt><dd>"codes used per level" and "unique ResIDs". If most replies share a few codes, retrieval will be poor; that is the first thing to check.</dd>
+    <dt>Saves</dt><dd><code>ckpt/index/index.pt</code>: the RQ-VAE weights, all codes, and all reply embeddings.</dd>
+  </dl>
+</div>
+
+<h3 id="s3">Stage 3 · External knowledge (<code>knowledge</code>, optional)</h3>
+<p class="eyebrow">Paper: Section 3.4 (σ_comet, σ_heal), Section 3.5</p>
+<p>SAGE uses two outside sources. <strong>COMET</strong> is a commonsense model: given "I failed my exam", it guesses the person's intent, need, likely effect and want. <strong>HEAL</strong> is a knowledge graph of expert mental-health responses. Neither is downloadable from the cloud container, so the Colab notebook runs with <code>--knowledge none</code>. All later code then skips the knowledge terms (Eq. 5 and Eq. 6 shrink to the context-only parts).</p>
+<div class="fn">
+  <p class="sig">cmd_knowledge(a)</p>
+  <dl>
+    <dt>What</dt><dd>For each example's last seeker utterance, asks COMET for xIntent/xNeed/xEffect/xWant, and finds the 3 most similar HEAL expert replies by embedding. Caches everything to <code>data/knowledge/{split}.jsonl</code>.</dd>
+    <dt>File format</dt><dd><code>{"id": "test-0-5", "comet": ["xIntent to fix things", ...], "heal": ["It sounds like...", ...]}</code></dd>
+    <dt>Change it</dt><dd class="change">You can plug in <em>any</em> knowledge source by writing files in this format yourself (for example, your own counselling guidelines, or LLM-generated inferences instead of COMET). Nothing else needs to change.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">knowledge_map(kdir, split) → {id: row}</p>
+  <dl>
+    <dt>What</dt><dd>Loads that cache as a dictionary. Returns an empty one if the folder does not exist, which is how "no knowledge" works.</dd>
+  </dl>
+</div>
+
+<h3 id="s4">Stage 4 · The fusion generator (<code>train-fusion</code>)</h3>
+<p class="eyebrow">Paper: Eq. 6, Section 3.5</p>
+<p>The retrieved candidate is a real reply from a <em>different</em> conversation, so it may not fit perfectly. A second T5 rewrites it for this conversation, while reading the knowledge.</p>
+
+<div class="fn">
+  <p class="sig">class FusionT5(t5)</p>
+  <dl>
+    <dt>What</dt><dd>Wraps a normal T5 and changes only what the decoder sees. It encodes three texts separately: the context (H_ctx), COMET (H_C) and HEAL (H_H). Two cross-attention layers let the context "look up" relevant parts of COMET and of HEAL. The three are mixed with weights λ₁, λ₂, λ₃ that are learned and forced to sum to 1 (softmax). The decoder then writes the reply from that mixture.</dd>
+    <dt>Formula</dt><dd><code>H_out = λ₁·H_ctx + λ₂·CrossAttn(H_ctx, H_C) + λ₃·CrossAttn(H_ctx, H_H)</code></dd>
+    <dt>Start value</dt><dd><code>lam = [2, 0, 0]</code> means training starts by trusting the context most (λ₁ ≈ 0.78). The training log prints how λ moves.</dd>
+    <dt>Change it</dt><dd class="change">To add a third knowledge source, add another <code>nn.MultiheadAttention</code>, a fourth λ, and a fourth input in <code>fusion_inputs</code>.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">fusion_inputs(tok, exs, cands, strategies, kmap, use_comet, use_heal) → (ctx, comet, heal)</p>
+  <dl>
+    <dt>What</dt><dd>Builds the three tokenised inputs. The context input is <code>"[STRAT] s [CAND] candidate [CTX] conversation"</code>, so the generator knows the strategy and the reply to adapt. Missing knowledge becomes the word "none".</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">load_index(path) · resid_topk(qcode, qemb, codes, emb, mask, r, use_resid=True)</p>
+  <dl>
+    <dt>What</dt><dd><code>load_index</code> reloads stage 2. <code>resid_topk</code> is the retrieval step: score = −10 × (number of differing code positions) + cosine similarity, so Hamming distance decides and cosine only breaks ties. <code>mask</code> limits the search, for example to replies with a given strategy.</dd>
+    <dt>Assumption</dt><dd>The paper only builds ResIDs for replies and never says how the <em>query</em> gets one. We pass the query's context vector through the same RQ-VAE.</dd>
+    <dt>Change it</dt><dd class="change">This one function is the retriever. Replace it with FAISS, BM25 or a dense retriever and all of SAGE uses the new one. <code>--no-resid</code> already switches to pure cosine.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">cmd_train_fusion(a)</p>
+  <dl>
+    <dt>Steps</dt><dd>For each training example, retrieve the best candidate with the <em>gold</em> strategy from a <em>different</em> dialogue (so the model cannot just copy the answer). Then train FusionT5 to turn (strategy, candidate, context, knowledge) into the gold reply.</dd>
+    <dt>Saves</dt><dd><code>ckpt/fusion/fusion.pt</code>, the tokenizer, and which base model was used.</dd>
+  </dl>
+</div>
+
+<h3 id="s5">Stage 5 · Inference (<code>infer</code>, <code>eval-retrieval</code>)</h3>
+<p class="eyebrow">Paper: Eqs. 3, 4, 5, Sections 3.3–3.5</p>
+
+<div class="fn">
+  <p class="sig">strategy_logprobs(model, tok, src) → Tensor[8]</p>
+  <dl>
+    <dt>What</dt><dd>The strategy classifier of Eq. 3. Instead of a separate classifier, it asks the self-retrieval model how likely it is to write <code>"[STRAT] s [RESP]"</code> for each of the 8 strategies, and returns those log-probabilities.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">class Trie(seqs) · .next(prefix)</p>
+  <dl>
+    <dt>What</dt><dd>A prefix tree of token IDs. Given the tokens generated so far, <code>next</code> returns which tokens may come next so the output stays one of the candidate replies.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">constrained_beam(model, tok, src, targets, beams) → [(text, score)]</p>
+  <dl>
+    <dt>What</dt><dd>Eq. 4. Runs Hugging Face beam search with <code>prefix_allowed_tokens_fn</code>, which sets the probability of every token outside the trie to zero. The result is the candidates the model itself prefers, ranked by its own scores. This is the core "self-retrieval" idea: the generator <em>is</em> the ranker.</dd>
+    <dt>Ablation</dt><dd><code>--no-constraint</code> skips the trie and lets the model generate freely after the strategy prefix.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">split_target(t) → (strategy, response)</p>
+  <dl><dt>What</dt><dd>Splits <code>"[STRAT] s [RESP] r"</code> back into its parts.</dd></dl>
+</div>
+<div class="fn">
+  <p class="sig">p_valid(model, tok, ctx, responses) → Tensor[k]</p>
+  <dl>
+    <dt>What</dt><dd>σ_valid in Eq. 5. Feeds <code>"judge: ... response: ..."</code> and reads the first output token's probability of "yes" versus "no". This is the job-B training from stage 1 paying off.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">class SageModel(a) · .respond(e) · .gold_nll(e, r_star)</p>
+  <dl>
+    <dt>__init__</dt><dd>Loads every trained piece once: tokenizer, self-retrieval T5, RQ-VAE index, training replies, knowledge cache and (unless <code>--retrieval-only</code>) the fusion generator.</dd>
+    <dt>respond</dt><dd>Produces one reply for one example. Walked through line by line <a href="#walk">below</a>. Returns <code>{pred_strategy, chosen_strategy, candidate, prediction}</code>.</dd>
+    <dt>gold_nll</dt><dd>Loss of the gold reply under the fusion generator, for PPL.</dd>
+    <dt>Reuse</dt><dd>This class is the clean entry point if you want SAGE inside your own program. <code>esc_eval.py</code> uses it exactly that way.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">cmd_infer(a)</p>
+  <dl>
+    <dt>What</dt><dd>Builds a SageModel, calls <code>respond</code> on every test example, writes <code>predictions.jsonl</code>, then scores it with <code>metrics.evaluate_file</code> plus PPL. Saves <code>metrics.json</code> including every setting used.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">cmd_eval_retrieval(a)</p>
+  <dl>
+    <dt>What</dt><dd>Tables 4 and 8. For each test example, makes a pool of 100 test replies that includes the gold one, shortlists 20 by ResID, ranks them with constrained beam search, and checks where the gold reply lands.</dd>
+    <dt>Assumption</dt><dd>The paper never says how large its pool is. Pool size changes the numbers a lot; on the full 3.5k-reply test pool BM25 gets R@10 11.4. Use <code>--pool-size</code> to test this.</dd>
+  </dl>
+</div>
+
+<h3 id="walk">One reply, step by step: inside <code>respond()</code></h3>
+<p>Follow the code from line 538 of <code>sage.py</code> with the example row above.</p>
+<ol class="steps">
+  <li><strong>Build the input.</strong> <code>src = "context: Seeker: hi Seeker: i'm nereida Supporter: Hi, do have any issues... Seeker: i am in disputed mod with my friends"</code></li>
+  <li><strong>Get the query's ResID.</strong> <code>embed</code> gives a 768-number vector <code>q</code>; <code>rq.codes</code> turns it into 4 code numbers <code>qcode</code>.</li>
+  <li><strong>Score strategies.</strong> <code>strategy_logprobs</code> → softmax with temperature τ (<code>--tau</code>) → keep the top <code>--bs-strat</code> = 3, say Question, Reflection of feelings, Restatement.</li>
+  <li><strong>Retrieve per strategy.</strong> For each of the 3, <code>resid_topk</code> picks 20 training replies that carry that strategy and have the nearest ResID.</li>
+  <li><strong>Constrained decoding.</strong> <code>constrained_beam</code> lets the T5 choose among those 20, keeping 4 beams (<code>--br</code>). Now there are up to 3 × 4 = 12 candidates, each tagged with its strategy probability.</li>
+  <li><strong>Fallback.</strong> If nothing came back, use a single Information reply (Section 3.3).</li>
+  <li><strong>Re-rank (Eq. 5, in log space).</strong> score = log σ_strat + log P(yes)/δ + α·log(mean COMET similarity) + β·log(max HEAL similarity). The last two are skipped when there is no knowledge.</li>
+  <li><strong>Choose.</strong> The highest score gives <code>s_star</code> (strategy) and <code>r_star</code> (candidate reply).</li>
+  <li><strong>Rewrite (Eq. 6).</strong> FusionT5 generates the final reply with beam 4, repetition penalty 1.2, no repeated 3-grams, at least 10 tokens. With <code>--retrieval-only</code>, <code>r_star</code> itself is the answer.</li>
+</ol>
+<div class="note warn"><strong>Which strategy counts for ACC?</strong> <code>pred_strategy</code> is the top-1 strategy from step 3, not the one that won re-ranking (<code>chosen_strategy</code>). That matches how the paper describes the strategy classifier. If you want to report the re-ranked one instead, change the return line of <code>respond</code>.</div>
+
+<h3 id="s-cli">Commands and flags</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Command</th><th>Main flags (default)</th><th>Paper</th></tr></thead>
+<tbody>
+<tr><td><code>train-selfret</code></td><td><code>--base t5-base --epochs 3 --lr 1e-4 --bs 16</code>, <code>--no-strategy-token</code></td><td>Eq. 1</td></tr>
+<tr><td><code>build-index</code></td><td><code>--model ckpt/selfret --epochs 50</code></td><td>Eq. 2</td></tr>
+<tr><td><code>knowledge</code></td><td><code>--comet &lt;dir&gt; --heal &lt;file&gt; --k 3</code></td><td>§3.4</td></tr>
+<tr><td><code>train-fusion</code></td><td><code>--knowledge data/knowledge --epochs 3 --lr 1e-4</code></td><td>Eq. 6</td></tr>
+<tr><td><code>infer</code></td><td><code>--bs-strat 3 --r 20 --br 4 --tau 1 --delta 1 --alpha 0.5 --beta 0.5 --limit 0 --eval-split test</code></td><td>Eqs. 3–6</td></tr>
+<tr><td><code>eval-retrieval</code></td><td><code>--pool-size 100 --r 20</code></td><td>Tables 4, 8</td></tr>
+</tbody></table></div>
+<p>Every command also takes <code>--split paper|zcj</code> and <code>--seed 42</code>. Do not mix up <code>--bs</code> (batch size, training) with <code>--bs-strat</code> (B_s, the number of strategies kept at inference).</p>
+
+<p><strong>Ablations (Table 6)</strong> are switches on <code>infer</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Flag</th><th>What it removes</th><th>Where in code</th></tr></thead>
+<tbody>
+<tr><td><code>--no-constraint</code></td><td>The trie; T5 generates freely</td><td><code>respond</code>, the <code>if a.no_constraint</code> branch</td></tr>
+<tr><td><code>--no-resid</code></td><td>Hamming distance; uses cosine only</td><td><code>resid_topk</code></td></tr>
+<tr><td><code>--no-comet</code> / <code>--no-heal</code></td><td>One knowledge source in re-ranking and fusion</td><td><code>respond</code>, <code>fusion_inputs</code></td></tr>
+<tr><td><code>--retrieval-only</code></td><td>The fusion generator; returns the retrieved reply</td><td><code>SageModel.__init__</code></td></tr>
+<tr><td><code>train-selfret --no-strategy-token</code></td><td>The <code>[STRAT] s</code> part of the target</td><td><code>target_text</code></td></tr>
+</tbody></table></div>
+
+<!-- ================================================================ esc -->
+<h2 id="esc">esc_eval.py</h2>
+<p class="eyebrow">Paper: Section 4.1, Table 5, Table C.15 (the second dataset, ESC-Eval)</p>
+<p>ESConv tests one reply at a time against a gold reply. ESC-Eval tests a whole conversation instead. A "seeker" model reads a role card (a short description of a person and their problem) and chats with your system for 5 turns. A judge model then scores the conversation from 0 to 4 on seven qualities. The paper's own Table 5 used three of its authors as raters, which cannot be repeated, so this script uses ESC-Eval's official automatic judge.</p>
+
+<div class="fn">
+  <p class="sig">class Chat(model_id, load_4bit, max_new_tokens, adapters, trust_remote_code)</p>
+  <dl>
+    <dt>What</dt><dd>A small wrapper: give it a list of chat messages, get back the model's reply (greedy). <code>adapters</code> loads one LoRA per scoring dimension for the ESC-RANK judge, and <code>use(name)</code> switches between them.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">_alternate(messages)</p>
+  <dl><dt>What</dt><dd>Merges back-to-back messages from the same role. Some chat templates (Mistral's) crash otherwise.</dd></dl>
+</div>
+<div class="fn">
+  <p class="sig">make_system(spec, args) → reply(history)</p>
+  <dl>
+    <dt>What</dt><dd>Returns a function that answers a conversation. <code>"sage"</code> wraps <code>SageModel.respond</code>. <code>"llm:&lt;model&gt;"</code> wraps a chat LLM with the llm_baseline prompt.</dd>
+    <dt>Change it</dt><dd class="change">To evaluate <em>your own</em> system on ESC-Eval, add a branch here that returns any function taking <code>[("usr", text), ("sys", text), ...]</code> and returning a string.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">roleplay(args)</p>
+  <dl>
+    <dt>What</dt><dd>For each role card: the system opens with ESC-Eval's greeting, then seeker and system alternate for <code>--turns</code> rounds. Saves after every card to <code>dialogs.json</code>, and skips finished cards on restart.</dd>
+  </dl>
+</div>
+<div class="fn">
+  <p class="sig">load_judge(args) · score(args) · summarise(scores)</p>
+  <dl>
+    <dt>What</dt><dd>Loads ESC-RANK (InternLM2-chat-7B + 7 LoRAs) or any chat LLM as judge. For each dialogue and each of the 7 dimensions, sends ESC-Eval's scoring prompt and reads the first digit 0–4. <code>summarise</code> averages them and also reports a +1 shifted 1–5 version to sit beside the paper's 5-point scale.</dd>
+    <dt>Note</dt><dd>The odd spellings in <code>DIMENSIONS</code> ("fluecy", "suggection") are deliberate. They match the prompts ESC-RANK was trained on.</dd>
+  </dl>
+</div>
+
+<!-- ================================================================ compare -->
+<h2 id="compare">compare.py</h2>
+<p>Has the paper's reported numbers typed in (<code>PAPER</code> for Tables 1, 2, 4 and <code>ESC_PAPER</code> for Table 5). It scans every <code>results/*/metrics.json</code> and <code>retrieval.json</code>, guesses which paper row each run matches from the folder name (a folder containing "qwen" is matched to Qwen-2.5-7B), and prints a Markdown table with our row above the paper's row.</p>
+<div class="note tip"><strong>Naming matters.</strong> Put the model name in the output folder (<code>--out results/qwen</code>, <code>results/sage</code>) so compare.py can pair it. Folders starting with <code>sage_</code> are ablations and are printed without a paper row.</div>
+
+<!-- ================================================================ notebooks -->
+<h2 id="notebooks">The notebooks</h2>
+<p><strong>SAGE_colab.ipynb</strong> contains no method code. It mounts Google Drive, installs packages, and calls the scripts above with <code>!python ...</code>: a 200-example quick check, the full LLM baselines, the full SAGE pipeline with <code>--knowledge none</code>, three ablations, <code>compare.py</code>, and a zip of the results.</p>
+<p><strong>SAGE_reproduction.ipynb</strong> is the opposite: it pastes the code of every script into its own cells (sections 1–8) so it runs without the .py files. Its <code>QUICK = True</code> switch at the top uses 200 test examples and 1 epoch.</p>
+<div class="note warn"><strong>Two copies of the code.</strong> If you change <code>sage.py</code>, the self-contained notebook still has the old version, and the other way round. Pick one to work in. For your own project, the .py files plus SAGE_colab.ipynb are easier to keep in sync.</div>
+
+<!-- ================================================================ modify -->
+<h2 id="modify">How to modify it</h2>
+<p>Common changes, where to make them, and what else must change with them.</p>
+
+<h4>Use a bigger or smaller backbone</h4>
+<p>Pass <code>--base google/flan-t5-large</code> (or <code>t5-small</code> for fast tests) to both <code>train-selfret</code> and <code>train-fusion</code>. Everything else adapts: the RQ-VAE reads the vector size from the data, and FusionT5 reads <code>d_model</code> from the model config. Any T5-family model works.</p>
+
+<h4>Use a decoder-only LLM (Qwen, LLaMA) instead of T5</h4>
+<p>This is a larger change, because <code>sage.py</code> assumes an encoder-decoder model in four places: <code>embed</code> (uses <code>model.encoder</code>), <code>constrained_beam</code> and <code>p_valid</code> (use <code>decoder_start_token_id</code>), and <code>FusionT5</code> (replaces the encoder output). You would switch to <code>AutoModelForCausalLM</code>, put the input and target in one sequence (as <code>llm_baseline.gold_nll</code> does), take embeddings from the last hidden layer, and redesign fusion (for example, put COMET and HEAL text into the prompt instead of cross-attention).</p>
+
+<h4>Change the retriever</h4>
+<p>Replace <code>resid_topk</code>. It must return a list of indices into the training rows, best first, respecting <code>mask</code>. Try <code>--no-resid</code> first to see how much ResIDs help compared with plain cosine.</p>
+
+<h4>Change how candidates are re-ranked</h4>
+<p>Weights: <code>--tau</code>, <code>--delta</code>, <code>--alpha</code>, <code>--beta</code>; tune on <code>--eval-split valid</code>, never on test. New terms: add to <code>log_s</code> inside <code>respond</code>, for example a safety classifier's log-probability or an emotion-match score.</p>
+
+<h4>Add your own knowledge</h4>
+<p>Write <code>data/knowledge/{train,valid,test}.jsonl</code> with <code>{"id", "comet": [...], "heal": [...]}</code> rows from any source, then run <code>train-fusion</code> and <code>infer</code> with <code>--knowledge data/knowledge</code>.</p>
+
+<h4>Use a different dataset</h4>
+<p>Write a converter that outputs the <a href="#data">data row</a> shape into <code>data/&lt;name&gt;/{train,valid,test}.jsonl</code> and use <code>--split &lt;name&gt;</code>. If the labels differ, edit <code>STRATEGIES</code>. The fields every script really needs are <code>id</code>, <code>dialog_idx</code>, <code>context</code>, <code>query</code>, <code>response</code>, <code>strategy</code> and <code>num_prev_turns</code>.</p>
+
+<h4>Speed things up while experimenting</h4>
+<p><code>--limit 200</code> on <code>infer</code>, <code>eval-retrieval</code> and <code>llm_baseline</code>; <code>--epochs 1</code> on training; <code>--base t5-small</code>; <code>--br 2 --r 10</code> at inference.</p>
+
+<!-- ================================================================ reuse -->
+<h2 id="reuse">Using SAGE in your own code</h2>
+<p>After the training commands have run, you can call SAGE from any Python file. This is the same pattern <code>esc_eval.py</code> uses.</p>
+<pre>from types import SimpleNamespace
+from sage import SageModel
+
+args = SimpleNamespace(
+    split="paper", selfret="ckpt/selfret", index="ckpt/index", fusion="ckpt/fusion",
+    knowledge="none", eval_split="test",
+    bs_strat=3, r=20, br=4, tau=1.0, delta=1.0, alpha=0.5, beta=0.5,
+    no_constraint=False, no_resid=False, no_comet=False, no_heal=False, retrieval_only=False,
+)
+sage = SageModel(args)          # loads all models once
+
+example = {
+    "id": None,
+    "context": [
+        {"speaker": "usr", "text": "I failed my driving test again and I feel useless."},
+    ],
+    "query": "I failed my driving test again and I feel useless.",
+}
+out = sage.respond(example)
+print(out["chosen_strategy"], "|", out["prediction"])</pre>
+<p><code>split</code> still matters here: it says which training replies form the retrieval pool, so it must match the split you trained the index on.</p>
+
+<!-- ================================================================ glossary -->
+<h2 id="gloss">Glossary</h2>
+<dl class="gloss">
+  <dt>Seq2seq / T5</dt><dd>A model with an encoder that reads the input and a decoder that writes the output. T5-base has about 220M parameters.</dd>
+  <dt>Teacher forcing</dt><dd>Feeding the gold answer to the decoder to measure how likely the model finds it. Used for training loss and perplexity.</dd>
+  <dt>Beam search</dt><dd>Generating while keeping the k best partial outputs at every step, instead of only the single best.</dd>
+  <dt>Constrained decoding</dt><dd>Beam search where some tokens are forbidden at each step. Here, only tokens that keep the output on a candidate reply are allowed.</dd>
+  <dt>Trie</dt><dd>A tree where shared beginnings of sequences are stored once. Lets you ask "what may come next?" quickly.</dd>
+  <dt>Embedding</dt><dd>A list of numbers that represents a text, so similar texts get similar numbers.</dd>
+  <dt>Cosine similarity</dt><dd>How closely two embeddings point in the same direction, from −1 to 1.</dd>
+  <dt>RQ-VAE</dt><dd>Residual-quantised variational autoencoder. Compresses a vector into a few code numbers, each level coding what the previous ones missed.</dd>
+  <dt>Codebook</dt><dd>The set of 512 learned prototype vectors at one RQ-VAE level.</dd>
+  <dt>ResID</dt><dd>The paper's name for a reply's 4-number RQ-VAE code.</dd>
+  <dt>Hamming distance</dt><dd>How many positions differ between two codes. (17, 403, 88, 251) vs (17, 403, 90, 12) is 2.</dd>
+  <dt>Sinkhorn</dt><dd>An iterative method that balances an assignment so every code gets used.</dd>
+  <dt>Straight-through estimator</dt><dd>A trick that copies gradients across a step that has no gradient (like "pick nearest").</dd>
+  <dt>Cross-attention</dt><dd>One sequence (the context) reads from another (the knowledge), pulling in the parts most relevant to each of its tokens.</dd>
+  <dt>Perplexity (PPL)</dt><dd>exp(average loss per token). Roughly, how many words the model was "choosing between". Lower is better.</dd>
+  <dt>LoRA</dt><dd>A small add-on weight set that adapts a big model to a task. ESC-RANK has one per scoring dimension.</dd>
+  <dt>4-bit loading</dt><dd>Stores weights in 4 bits instead of 16 so a 7B model fits on an 8 GB GPU, at a small quality cost.</dd>
+  <dt>Ablation</dt><dd>Removing one component and re-measuring, to see how much that component contributed.</dd>
+</dl>
+
+<p style="margin-top:48px;color:var(--muted);font-size:14px">Based on the code in <code>sage-repro/</code> and the <code>floxy1991/sage</code> repository as of 4 Nov 2026. Line numbers refer to <code>sage.py</code> at that date. The 1 Nov update added run-management options that this page does not cover in detail (resume after a disconnect, <code>--device</code>, <code>--micro-bs</code>, <code>--train-limit</code>, <code>--sample</code>); the method functions described here are unchanged. For what the paper leaves out or gets wrong, see <code>AUDIT.md</code>; for the full list of assumptions, see <code>README.md</code>.</p>
+</main>
+</div>
